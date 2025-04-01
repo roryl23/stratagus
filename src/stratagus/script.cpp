@@ -2019,9 +2019,11 @@ void InitLua()
 	static const luaL_Reg lualibs[] = {
 		{"", luaopen_base},
 		{LUA_TABLIBNAME, luaopen_table},
-		{LUA_IOLIBNAME, luaopen_io},
+#ifdef DEBUG
 		{LUA_LOADLIBNAME, luaopen_package},
+#endif
 		{LUA_OSLIBNAME, luaopen_os},
+		{LUA_IOLIBNAME, luaopen_io},
 		{LUA_STRLIBNAME, luaopen_string},
 		{LUA_MATHLIBNAME, luaopen_math},
 		{LUA_DBLIBNAME, luaopen_debug},
