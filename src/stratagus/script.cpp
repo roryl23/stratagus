@@ -2020,10 +2020,10 @@ void InitLua()
 		{"", luaopen_base},
 		{LUA_TABLIBNAME, luaopen_table},
 #ifdef DEBUG
-		{LUA_IOLIBNAME, luaopen_io},
 		{LUA_LOADLIBNAME, luaopen_package},
 #endif
 		{LUA_OSLIBNAME, luaopen_os},
+		{LUA_IOLIBNAME, luaopen_io},
 		{LUA_STRLIBNAME, luaopen_string},
 		{LUA_MATHLIBNAME, luaopen_math},
 		{LUA_DBLIBNAME, luaopen_debug},
