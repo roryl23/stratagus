@@ -43,14 +43,31 @@
 
 #include <SDL_image.h>
 #include <map>
+#include <set>
 #include <string>
+#include <tuple>
 
 /*----------------------------------------------------------------------------
 --  Variables
 ----------------------------------------------------------------------------*/
 
 static int HashCount;
-static std::map<fs::path, std::weak_ptr<CGraphic>> GraphicHash;
+static std::map<fs::path, std::shared_ptr<CGraphic>> GraphicHash;
+
+static void WarnInvalidGraphicFrame(const CGraphic &graphic, unsigned frame, bool flipped)
+{
+	static std::set<std::tuple<fs::path, unsigned, bool>> warnedFrames;
+	if (!warnedFrames.insert({graphic.File, frame, flipped}).second) {
+		return;
+	}
+	const size_t available = flipped ? graphic.frameFlip_map.size() : graphic.frame_map.size();
+	ErrorPrint("Warning: graphic '%s' requested %sframe %u but only %zu frames are available; "
+	           "skipping draw\n",
+	           graphic.File.string().c_str(),
+	           flipped ? "flipped " : "",
+	           frame,
+	           available);
+}
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -249,6 +266,10 @@ void CGraphic::DrawSubClipCustomMod(int gx, int gy, int w, int h, int x, int y,
 void CGraphic::DrawFrame(unsigned frame, int x, int y,
 						 SDL_Surface *surface /*= TheScreen*/) const
 {
+	if (frame >= frame_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, false);
+		return;
+	}
 	DrawSub(frame_map[frame].x, frame_map[frame].y,
 			Width, Height, x, y, surface);
 }
@@ -264,6 +285,10 @@ void CGraphic::DrawFrame(unsigned frame, int x, int y,
 void CGraphic::DrawFrameClip(unsigned frame, int x, int y,
 							 SDL_Surface *surface /*= TheScreen*/) const
 {
+	if (frame >= frame_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, false);
+		return;
+	}
 	DrawSubClip(frame_map[frame].x, frame_map[frame].y,
 				Width, Height, x, y, surface);
 }
@@ -271,6 +296,10 @@ void CGraphic::DrawFrameClip(unsigned frame, int x, int y,
 void CGraphic::DrawFrameTrans(unsigned frame, int x, int y, int alpha,
 							  SDL_Surface *surface /*= TheScreen*/) const
 {
+	if (frame >= frame_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, false);
+		return;
+	}
 	DrawSubTrans(frame_map[frame].x, frame_map[frame].y,
 				 Width, Height, x, y, alpha, surface);
 }
@@ -278,6 +307,10 @@ void CGraphic::DrawFrameTrans(unsigned frame, int x, int y, int alpha,
 void CGraphic::DrawFrameClipTrans(unsigned frame, int x, int y, int alpha,
 								  SDL_Surface *surface /* = TheScreen*/) const
 {
+	if (frame >= frame_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, false);
+		return;
+	}
 	DrawSubClipTrans(frame_map[frame].x, frame_map[frame].y,
 					 Width, Height, x, y, alpha, surface);
 }
@@ -287,6 +320,10 @@ void CGraphic::DrawFrameClipCustomMod(unsigned frame, int x, int y,
 									  const uint32_t param,
 									  SDL_Surface *surface /* = TheScreen*/) const
 {
+	if (frame >= frame_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, false);
+		return;
+	}
 	DrawSubClipCustomMod(frame_map[frame].x, frame_map[frame].y,
 						 Width, Height, x, y, modifier, param, surface);
 }
@@ -336,6 +373,10 @@ void CGraphic::DrawFrameX(unsigned frame, int x, int y,
 void CGraphic::DrawFrameClipX(unsigned frame, int x, int y,
 							  SDL_Surface *surface /*= TheScreen*/) const
 {
+	if (frame >= frameFlip_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, true);
+		return;
+	}
 	SDL_Rect srect = {frameFlip_map[frame].x, frameFlip_map[frame].y, Uint16(Width), Uint16(Height)};
 
 	const int oldx = x;
@@ -352,6 +393,10 @@ void CGraphic::DrawFrameClipX(unsigned frame, int x, int y,
 void CGraphic::DrawFrameTransX(unsigned frame, int x, int y, int alpha,
 							   SDL_Surface *surface /*= TheScreen*/) const
 {
+	if (frame >= frameFlip_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, true);
+		return;
+	}
 	SDL_Rect srect = {frameFlip_map[frame].x, frameFlip_map[frame].y, Uint16(Width), Uint16(Height)};
 	SDL_Rect drect = {Sint16(x), Sint16(y), 0, 0};
 	Uint8 oldalpha = 0xff;
@@ -365,6 +410,10 @@ void CGraphic::DrawFrameTransX(unsigned frame, int x, int y, int alpha,
 void CGraphic::DrawFrameClipTransX(unsigned frame, int x, int y, int alpha,
 								   SDL_Surface *surface /*= TheScreen*/) const
 {
+	if (frame >= frameFlip_map.size()) {
+		WarnInvalidGraphicFrame(*this, frame, true);
+		return;
+	}
 	SDL_Rect srect = {frameFlip_map[frame].x, frameFlip_map[frame].y, Uint16(Width), Uint16(Height)};
 
 	int oldx = x;
@@ -420,7 +469,7 @@ std::shared_ptr<CGraphic> CGraphic::New(const std::string &filename, const int w
 
 	const fs::path file = LibraryFileName(filename);
 	auto &cache = GraphicHash[file];
-	auto res = cache.lock();
+	auto res = cache;
 	if (res == nullptr) {
 		res = std::make_shared<CGraphic>();
 		// FIXME: use a constructor for this
@@ -453,8 +502,8 @@ std::shared_ptr<CPlayerColorGraphic> CPlayerColorGraphic::New(const std::string 
 	}
 
 	const fs::path file = LibraryFileName(filename);
-	auto& cache = GraphicHash[file];
-	auto res = std::dynamic_pointer_cast<CPlayerColorGraphic>(cache.lock());
+	auto &cache = GraphicHash[file];
+	auto res = std::dynamic_pointer_cast<CPlayerColorGraphic>(cache);
 	if (res == nullptr) {
 		res = std::make_shared<CPlayerColorGraphic>();
 		// FIXME: use a constructor for this
@@ -522,7 +571,7 @@ std::shared_ptr<CGraphic> CGraphic::Get(const std::string &filename)
 	const fs::path file = LibraryFileName(filename);
 	auto &cache = GraphicHash[file];
 
-	return cache.lock();
+	return cache;
 }
 
 /**
@@ -541,7 +590,7 @@ std::shared_ptr<CPlayerColorGraphic> CPlayerColorGraphic::Get(const std::string 
 	const fs::path file = LibraryFileName(filename);
 	auto cache = GraphicHash[file];
 
-	return std::dynamic_pointer_cast<CPlayerColorGraphic>(cache.lock());
+	return std::dynamic_pointer_cast<CPlayerColorGraphic>(cache);
 }
 
 /**

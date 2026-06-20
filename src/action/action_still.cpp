@@ -52,10 +52,35 @@
 #include "unittype.h"
 #include "video.h"
 
+#include <set>
+
 enum {
 	SUB_STILL_STANDBY = 0,
 	SUB_STILL_ATTACK
 };
+
+static bool CheckInvalidAutoCastVectors(const CUnit &unit)
+{
+	return ((unit.AutoCastSpell.empty() && unit.Type->CanCastSpell.empty())
+			|| (!unit.AutoCastSpell.empty() && !unit.Type->CanCastSpell.empty()
+				&& unit.AutoCastSpell.size() == unit.Type->CanCastSpell.size()));
+}
+
+static void WarnInvalidAutoCastVectors(const CUnit &unit, const char *context)
+{
+	static std::set<std::string> warned;
+	const std::string key = unit.Type->Ident + ":" + context;
+	if (!warned.insert(key).second) {
+		return;
+	}
+	ErrorPrint("Warning: unit type '%s' has inconsistent spell vectors in %s "
+	           "(CanCastSpell=%zu, AutoCastSpell=%zu, spells=%zu); ignoring invalid autocast state\n",
+	           unit.Type->Ident.c_str(),
+	           context,
+	           unit.Type->CanCastSpell.size(),
+	           unit.AutoCastSpell.size(),
+	           SpellTypeTable.size());
+}
 
 /* static */ std::unique_ptr<COrder> COrder::NewActionStandGround()
 {
@@ -226,9 +251,14 @@ static bool MoveRandomly(CUnit &unit)
 */
 bool AutoCast(CUnit &unit)
 {
-	if (!unit.AutoCastSpell.empty() && !unit.Removed) { // Removed units can't cast any spells, from bunker)
-		for (unsigned int i = 0; i < SpellTypeTable.size(); ++i) {
+	if (CheckInvalidAutoCastVectors(unit)) {
+		WarnInvalidAutoCastVectors(unit, "AutoCast");
+	}
+	if (!unit.Type->CanCastSpell.empty() && !unit.AutoCastSpell.empty() && !unit.Removed) { // Removed units can't cast any spells, from bunker)
+		const size_t spellCount = std::min({SpellTypeTable.size(), unit.Type->CanCastSpell.size(), unit.AutoCastSpell.size()});
+		for (size_t i = 0; i < spellCount; ++i) {
 			if (unit.AutoCastSpell[i]
+				&& unit.Type->CanCastSpell[i]
 				&& (SpellTypeTable[i]->AutoCast || SpellTypeTable[i]->AICast)
 				&& AutoCastSpell(unit, *SpellTypeTable[i])) {
 				return true;
@@ -338,9 +368,14 @@ bool COrder_Still::AutoAttackStand(CUnit &unit)
 
 bool COrder_Still::AutoCastStand(CUnit &unit)
 {
-	if (!unit.Removed) { // Removed units can't cast any spells, from bunker)
-		for (unsigned int i = 0; i < SpellTypeTable.size(); ++i) {
+	if (CheckInvalidAutoCastVectors(unit)) {
+		WarnInvalidAutoCastVectors(unit, "AutoCastStand");
+	}
+	if (!unit.Type->CanCastSpell.empty() && !unit.AutoCastSpell.empty() && !unit.Removed) { // Removed units can't cast any spells, from bunker)
+		const size_t spellCount = std::min({SpellTypeTable.size(), unit.Type->CanCastSpell.size(), unit.AutoCastSpell.size()});
+		for (size_t i = 0; i < spellCount; ++i) {
 			if (unit.AutoCastSpell[i]
+				&& unit.Type->CanCastSpell[i]
 				&& (SpellTypeTable[i]->AutoCast || SpellTypeTable[i]->AICast)
 				&& AutoCastSpell(unit, *SpellTypeTable[i])) {
 				return true;
@@ -414,7 +449,7 @@ void COrder_Still::Execute(CUnit &unit) /* override */
 	this->Sleep = CYCLES_PER_SECOND / 2;
 
 	if (this->Action == UnitAction::StandGround || unit.Removed || unit.CanMove() == false) {
-		if (!unit.AutoCastSpell.empty()) {
+		if (!unit.Type->CanCastSpell.empty()) {
 			this->AutoCastStand(unit);
 		}
 		if (unit.IsAggressive()) {

@@ -199,6 +199,14 @@ bool COrder_Attack::ParseSpecificData(lua_State *l,
 		lua_rawgeti(l, -1, j + 1);
 		CclGetPos(l, &this->goalPos);
 		lua_pop(l, 1);
+		if (!Map.Info.IsPointOnMap(this->goalPos)) {
+			static bool warnedLegacyAttackTile = false;
+			if (!warnedLegacyAttackTile) {
+				ErrorPrint("Warning: legacy savegame attack order has an invalid target tile; "
+				           "loading with compatibility handling\n");
+				warnedLegacyAttackTile = true;
+			}
+		}
 
 	} else if (value == "amove-tile") {
 		++j;
@@ -324,7 +332,8 @@ bool COrder_Attack::IsMovingToAttackPos() const
 bool COrder_Attack::IsAttackGroundOrWall() const
 {
 	/// FIXME: Check if need to add this: (goal && goal->Type && goal->Type->BoolFlag[WALL_INDEX].value)
-	return this->Action == UnitAction::AttackGround || Map.WallOnMap(this->goalPos);
+	return this->Action == UnitAction::AttackGround
+	       || (Map.Info.IsPointOnMap(this->goalPos) && Map.WallOnMap(this->goalPos));
 }
 
 CUnit &COrder_Attack::BestTarget(const CUnit &unit, CUnit &target1, CUnit &target2) const

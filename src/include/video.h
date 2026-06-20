@@ -55,7 +55,6 @@ extern SDL_Renderer *TheRenderer;
 extern SDL_Surface *TheScreen;
 extern SDL_Texture *TheTexture;
 
-#if SDL_BYTEORDER == SDL_LIL_ENDIAN
 #define RSHIFT  16
 #define GSHIFT  8
 #define BSHIFT  0
@@ -64,16 +63,6 @@ extern SDL_Texture *TheTexture;
 #define GMASK   0x0000ff00
 #define BMASK   0x000000ff
 #define AMASK   0xff000000
-#else
-#define RSHIFT  8
-#define GSHIFT  16
-#define BSHIFT  24
-#define ASHIFT  0
-#define RMASK   0x0000ff00
-#define GMASK   0x00ff0000
-#define BMASK   0xff000000
-#define AMASK   0x000000ff
-#endif
 
 using pixelModifier = uint32_t(*)(const uint32_t, const uint32_t, const uint32_t); // type alias
 
@@ -401,7 +390,7 @@ public:
 	int WindowWidth = 0;
 	int WindowHeight = 0;
 	double VerticalPixelSize = 1.;
-	SDL_Cursor *blankCursor = nullptr;
+	sdl2::CursorPtr blankCursor;
 	int Depth = 0;
 	bool FullScreen = false;
 };

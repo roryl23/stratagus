@@ -425,6 +425,7 @@ void CUnit::Init()
 	AutoRepair = 0;
 	Burning = 0;
 	Destroyed = 0;
+	Released = 0;
 	Removed = 0;
 	Selected = 0;
 	Constructed = 0;
@@ -597,7 +598,7 @@ void CUnit::Init(const CUnitType &type)
 	// Set a heading for the unit if it Handles Directions
 	// Don't set a building heading, as only 1 construction direction
 	//   is allowed.
-	if (type.NumDirections > 1 && type.BoolFlag[NORANDOMPLACING_INDEX].value == false && type.Sprite && !type.Building) {
+	if (type.NumDirections > 1 && type.BoolFlag[NORANDOMPLACING_INDEX].value == false && !type.Building) {
 		Direction = (SyncRand() >> 8) & 0xFF; // random heading
 		UnitUpdateHeading(*this);
 	}

@@ -1466,6 +1466,13 @@ static int CclDefineUnitStats(lua_State *l)
 				stats->ImproveIncomes[resId] = LuaToNumber(l, -1, k + 1);
 				lua_pop(l, 1);
 			}
+		} else if (value == "ShadowFly") {
+			static bool warnedLegacyShadowFly = false;
+			if (!warnedLegacyShadowFly) {
+				ErrorPrint("Warning: legacy savegame field 'ShadowFly' found in unit stats; "
+				           "loading with compatibility handling\n");
+				warnedLegacyShadowFly = true;
+			}
 		} else {
 			int i = UnitTypeVar.VariableNameLookup[value];// User variables
 			if (i != -1) { // valid index

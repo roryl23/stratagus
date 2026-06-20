@@ -54,6 +54,8 @@
 #include "unittype.h"
 #include "upgrade.h"
 
+#include <set>
+
 /*----------------------------------------------------------------------------
 --  Variables
 ----------------------------------------------------------------------------*/
@@ -64,6 +66,15 @@
 
 /// Get resource by name
 extern unsigned CclGetResourceByName(lua_State *l);
+
+static void WarnLegacySaveField(const char *field)
+{
+	static std::set<std::string> warned;
+	if (warned.insert(field).second) {
+		ErrorPrint("Warning: legacy savegame field '%s' found; loading with compatibility handling\n",
+		           field);
+	}
+}
 
 /**
 ** <b>Description</b>
@@ -156,6 +167,11 @@ static int CclResourcesMultiBuildersMultiplier(lua_State *l)
 */
 static CUnit *CclGetUnit(lua_State *l)
 {
+	if (lua_type(l, -1) == LUA_TSTRING) {
+		WarnLegacySaveField("unit-ref-string");
+		return CclGetUnitFromRef(l);
+	}
+
 	int num = LuaToNumber(l, -1);
 	if (num == -1) {
 		if (!Selected.empty()) {
@@ -248,7 +264,15 @@ void PathFinderOutput::Load(lua_State *l)
 		if (tag == "cycles") {
 			this->Cycles = LuaToNumber(l, -1, i);
 		} else if (tag == "fast") {
-			this->Fast = LuaToNumber(l, -1, i);
+			lua_rawgeti(l, -1, i);
+			if (lua_type(l, -1) == LUA_TNUMBER) {
+				this->Fast = LuaToNumber(l, -1);
+			} else {
+				WarnLegacySaveField("pathfinder-output.fast");
+				this->Fast = 1;
+				--i;
+			}
+			lua_pop(l, 1);
 		} else if (tag == "overflow-length") {
 			this->OverflowLength = LuaToNumber(l, -1, i);
 		} else if (tag == "path") {
@@ -530,22 +554,26 @@ static int CclUnit(lua_State *l)
 			unit->Boarded = 1;
 			--j;
 		} else if (value == "next-worker") {
-			LuaError(l, "Unsupported old savegame");
+			WarnLegacySaveField("next-worker");
 		} else if (value == "resource-workers") {
 			lua_rawgeti(l, 2, j + 1);
-			if (!lua_istable(l, -1)) {
+			if (lua_isstring(l, -1)) {
+				WarnLegacySaveField("resource-workers-string");
+				unit->Resource.AssignedWorkers.push_back(CclGetUnitFromRef(l));
+			} else if (!lua_istable(l, -1)) {
 				LuaError(l, "incorrect argument");
-			}
-			const int subargs = lua_rawlen(l, -1);
-			for (int k = 0; k < subargs; ++k) {
-				lua_rawgeti(l, -1, k + 1);
-				CUnit *u = CclGetUnitFromRef(l);
-				lua_pop(l, 1);
-				unit->Resource.AssignedWorkers.push_back(u);
+			} else {
+				const int subargs = lua_rawlen(l, -1);
+				for (int k = 0; k < subargs; ++k) {
+					lua_rawgeti(l, -1, k + 1);
+					CUnit *u = CclGetUnitFromRef(l);
+					lua_pop(l, 1);
+					unit->Resource.AssignedWorkers.push_back(u);
+				}
 			}
 			lua_pop(l, 1);
 		} else if (value == "resource-assigned") {
-			LuaError(l, "Unsupported old savegame");
+			WarnLegacySaveField("resource-assigned");
 		} else if (value == "resource-active") {
 			lua_rawgeti(l, 2, j + 1);
 			lua_pushvalue(l, -1);
@@ -609,16 +637,22 @@ static int CclUnit(lua_State *l)
 			unit->AutoCastSpell[SpellTypeByIdent(s).Slot] = true;
 		} else if (value == "spell-cooldown") {
 			lua_rawgeti(l, 2, j + 1);
-			if (!lua_istable(l, -1) || lua_rawlen(l, -1) != SpellTypeTable.size()) {
+			if (!lua_istable(l, -1)) {
 				LuaError(l, "incorrect argument");
 			}
 			if (unit->SpellCoolDownTimers.empty()) {
 				unit->SpellCoolDownTimers.resize(SpellTypeTable.size());
 			}
-			for (size_t k = 0; k < SpellTypeTable.size(); ++k) {
+			const size_t cooldowns = std::min<size_t>(lua_rawlen(l, -1), SpellTypeTable.size());
+			if (cooldowns != SpellTypeTable.size()) {
+				WarnLegacySaveField("spell-cooldown-count");
+			}
+			for (size_t k = 0; k < cooldowns; ++k) {
 				unit->SpellCoolDownTimers[k] = LuaToNumber(l, -1, k + 1);
 			}
 			lua_pop(l, 1);
+		} else if (value == "ShadowFly") {
+			WarnLegacySaveField("ShadowFly");
 		} else {
 			const int index = UnitTypeVar.VariableNameLookup[value];// User variables
 			if (index != -1) { // Valid index
@@ -933,16 +967,20 @@ static int CclSetTeleportDestination(lua_State *l)
 **
 **  @param l  Lua state.
 **
-**  OrderUnit(player, unit-type, start_loc, dest_loc, order)
+**  OrderUnit(player, unit-type, start_loc, dest_loc, order[, build-type])
 **
 ** Example:
 **
 ** <div class="example"><code>-- Move transport from position x=94,y=0 to x=80,y=9
-**		<strong>OrderUnit</strong>(1,"unit-human-transport",{94,0},{80,9},"move")</code></div>
+**		<strong>OrderUnit</strong>(1,"unit-human-transport",{94,0},{80,9},"move")
+**		<strong>OrderUnit</strong>(1,"unit-peasant",{94,0},{80,9},"build","unit-farm")</code></div>
 */
 static int CclOrderUnit(lua_State *l)
 {
-	LuaCheckArgs(l, 5);
+	const int nargs = lua_gettop(l);
+	if (nargs < 5 || nargs > 6) {
+		LuaError(l, "incorrect argument count");
+	}
 
 	lua_pushvalue(l, 1);
 	const auto unitPlayerValidator = TriggerGetPlayer(l);
@@ -978,6 +1016,15 @@ static int CclOrderUnit(lua_State *l)
 		dpos2 = dpos1;
 	}
 	const std::string_view order = LuaToString(l, 5);
+	CUnitType *buildType = nullptr;
+	if (order == "build") {
+		if (nargs != 6) {
+			LuaError(l, "build order requires a unit type");
+		}
+		lua_pushvalue(l, 6);
+		buildType = CclGetUnitType(l);
+		lua_pop(l, 1);
+	}
 	std::vector<CUnit *> table = Select(pos1, pos2);
 	for (CUnit *unit : table) {
 		if (unitValidator(*unit) && unitPlayerValidator(*unit)) {
@@ -990,6 +1037,16 @@ static int CclOrderUnit(lua_State *l)
 			} else if (order == "attack") {
 				CUnit *attack = TargetOnMap(*unit, dpos1, dpos2);
 				CommandAttack(*unit, (dpos1 + dpos2) / 2, attack, EFlushMode::On);
+			} else if (order == "resource") {
+				CUnit *resource = TargetOnMap(*unit, dpos1, dpos2);
+				if (resource != nullptr) {
+					CommandResource(*unit, *resource, EFlushMode::On);
+				} else {
+					CommandResourceLoc(*unit, (dpos1 + dpos2) / 2, EFlushMode::On);
+				}
+			} else if (order == "build") {
+				Assert(buildType != nullptr);
+				CommandBuildBuilding(*unit, (dpos1 + dpos2) / 2, *buildType, EFlushMode::On);
 			} else if (order == "explore") {
 				CommandExplore(*unit, EFlushMode::On);
 			} else if (order == "patrol") {

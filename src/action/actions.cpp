@@ -80,6 +80,7 @@
 # include "st_backtrace.h"
 #endif
 
+#include <array>
 #include <ctime>
 
 /*----------------------------------------------------------------------------
@@ -88,6 +89,31 @@
 
 unsigned SyncHash; /// Hash calculated to find sync failures
 
+struct SyncCycleDebugEntry
+{
+	bool Valid = false;
+	unsigned long Cycle = 0;
+	unsigned int StartSeed = 0;
+	unsigned int StartHash = 0;
+	unsigned int EndSeed = 0;
+	unsigned int EndHash = 0;
+	size_t UnitCount = 0;
+	size_t HashedUnitCount = 0;
+	int FirstUnit = -1;
+	int LastUnit = -1;
+	const char *FirstUnitType = "";
+	const char *LastUnitType = "";
+	const char *FirstAction = "";
+	const char *LastAction = "";
+	int FirstRefs = 0;
+	int LastRefs = 0;
+	Vec2i FirstPos;
+	Vec2i LastPos;
+	unsigned int FirstUnitHash = 0;
+	unsigned int LastUnitHash = 0;
+};
+
+static std::array<SyncCycleDebugEntry, 512> SyncCycleDebugHistory;
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -437,10 +463,20 @@ static void HandleUnitAction(CUnit &unit)
 			}
 		}
 		if (unit.CurrentResource) {
-			const ResourceInfo &resinfo = *unit.Type->ResInfo[unit.CurrentResource];
-			if (resinfo.LoseResources && unit.Orders[0]->Action != UnitAction::Resource) {
-				unit.CurrentResource = 0;
-				unit.ResourcesHeld = 0;
+			if (unit.Type->ResInfo[unit.CurrentResource] != nullptr) {
+				// this may be a nullptr iff the unit was upgraded to a type
+				// that does not permit harvesting resources but *at the same
+				// time* the unit was not declared to lose resources (meaning
+				// when the upgrade action happened, the resources stayed). We
+				// are taking this to be on purpose, i.e., the upgraded unit
+				// keeps the resource and might be able to do something with
+				// that when it is upgraded again (or downgraded?) to a type
+				// that once again can harvest resources
+				const auto resinfo = *unit.Type->ResInfo[unit.CurrentResource];
+				if (resinfo.LoseResources && unit.Orders[0]->Action != UnitAction::Resource) {
+					unit.CurrentResource = 0;
+					unit.ResourcesHeld = 0;
+				}
 			}
 		}
 	}
@@ -497,6 +533,132 @@ static const char* toCStr(UnitAction action)
 		case UnitAction::TransformInto: return "TransformInto";
 	}
 	return "";
+}
+
+void ResetSyncDebugCycleHistory()
+{
+	for (SyncCycleDebugEntry &entry : SyncCycleDebugHistory) {
+		entry = {};
+	}
+}
+
+static SyncCycleDebugEntry *GetSyncDebugEntry(unsigned long cycle)
+{
+	SyncCycleDebugEntry &entry = SyncCycleDebugHistory[cycle % SyncCycleDebugHistory.size()];
+	if (!entry.Valid || entry.Cycle != cycle) {
+		return nullptr;
+	}
+	return &entry;
+}
+
+static void BeginSyncDebugCycle(unsigned long cycle, size_t unitCount)
+{
+	SyncCycleDebugEntry &entry = SyncCycleDebugHistory[cycle % SyncCycleDebugHistory.size()];
+	entry = {};
+	entry.Valid = true;
+	entry.Cycle = cycle;
+	entry.StartSeed = SyncRandSeed;
+	entry.StartHash = SyncHash;
+	entry.EndSeed = SyncRandSeed;
+	entry.EndHash = SyncHash;
+	entry.UnitCount = unitCount;
+}
+
+static void RecordSyncDebugUnit(const CUnit &unit, const char *action, unsigned int hash)
+{
+	SyncCycleDebugEntry *entry = GetSyncDebugEntry(GameCycle);
+	if (!entry) {
+		return;
+	}
+	const int unitNumber = UnitNumber(unit);
+	const char *unitType = unit.Type ? unit.Type->Ident.c_str() : "unit-killed";
+
+	if (entry->HashedUnitCount == 0) {
+		entry->FirstUnit = unitNumber;
+		entry->FirstUnitType = unitType;
+		entry->FirstAction = action;
+		entry->FirstRefs = unit.Refs;
+		entry->FirstPos = unit.tilePos;
+		entry->FirstUnitHash = hash;
+	}
+	entry->LastUnit = unitNumber;
+	entry->LastUnitType = unitType;
+	entry->LastAction = action;
+	entry->LastRefs = unit.Refs;
+	entry->LastPos = unit.tilePos;
+	entry->LastUnitHash = hash;
+	entry->EndSeed = SyncRandSeed;
+	entry->EndHash = hash;
+	++entry->HashedUnitCount;
+}
+
+static void EndSyncDebugCycle()
+{
+	SyncCycleDebugEntry *entry = GetSyncDebugEntry(GameCycle);
+	if (!entry) {
+		return;
+	}
+	entry->EndSeed = SyncRandSeed;
+	entry->EndHash = SyncHash;
+}
+
+void DumpSyncDebugCycleHistory(unsigned long centerCycle,
+                               unsigned int receivedSeed,
+                               unsigned int localSeed,
+                               unsigned int receivedHash,
+                               unsigned int localHash)
+{
+	ErrorPrint("First divergent sync sample diagnostics: sampled-after-cycle %lu, "
+	           "seed %X!=%X, hash %X!=%X\n",
+	           centerCycle,
+	           receivedSeed,
+	           localSeed,
+	           receivedHash,
+	           localHash);
+	ErrorPrint("Recent local sync hash history around sampled-after-cycle %lu:\n", centerCycle);
+
+	bool printed = false;
+	const unsigned long firstCycle = centerCycle > 8 ? centerCycle - 8 : 0;
+	const unsigned long lastCycle = centerCycle + 2;
+	for (unsigned long cycle = firstCycle; cycle <= lastCycle; ++cycle) {
+		const SyncCycleDebugEntry *entry = GetSyncDebugEntry(cycle);
+		if (!entry) {
+			continue;
+		}
+		printed = true;
+		const char marker = cycle == centerCycle ? '*' : ' ';
+		ErrorPrint("%c cycle %lu: seed %X->%X hash %X->%X units %zu/%zu",
+		           marker,
+		           entry->Cycle,
+		           entry->StartSeed,
+		           entry->EndSeed,
+		           entry->StartHash,
+		           entry->EndHash,
+		           entry->HashedUnitCount,
+		           entry->UnitCount);
+		if (entry->HashedUnitCount != 0) {
+			ErrorPrint("; first unit %d:%s %s refs %d pos %d,%d hash %X; "
+			           "last unit %d:%s %s refs %d pos %d,%d hash %X",
+			           entry->FirstUnit,
+			           entry->FirstUnitType,
+			           entry->FirstAction,
+			           entry->FirstRefs,
+			           entry->FirstPos.x,
+			           entry->FirstPos.y,
+			           entry->FirstUnitHash,
+			           entry->LastUnit,
+			           entry->LastUnitType,
+			           entry->LastAction,
+			           entry->LastRefs,
+			           entry->LastPos.x,
+			           entry->LastPos.y,
+			           entry->LastUnitHash);
+		}
+		ErrorPrint("\n");
+	}
+	if (!printed) {
+		ErrorPrint("  no retained local sync history for this cycle window\n");
+	}
 }
 
 static void DumpUnitInfo(const CUnit &unit)
@@ -578,17 +740,18 @@ static void UnitActionsEachCycle(const std::vector<CUnit *> &units)
 			DumpUnitInfo(unit);
 		}
 
+		const char *currentAction =
+			unit.Orders.empty() ? "No Orders" : toCStr(unit.CurrentAction());
+
 		// Calculate some hash.
 		SyncHash = (SyncHash << 5) | (SyncHash >> 27);
 		SyncHash ^= unit.Orders.empty() == false
 		              ? static_cast<std::underlying_type_t<UnitAction>>(unit.CurrentAction()) << 18
 		              : 0;
 		SyncHash ^= unit.Refs << 3;
+		RecordSyncDebugUnit(unit, currentAction, SyncHash);
 
 		if (EnableUnitDebug) {
-			const char *currentAction =
-				unit.Orders.empty() ? "No Orders" : toCStr(unit.CurrentAction());
-
 			fprintf(stderr,
 			        "GameCycle: %lud, new SyncHash: %x (unit: %d:%s, order: %s, refs: %d)\n",
 			        GameCycle,
@@ -612,6 +775,7 @@ void UnitActions()
 	const bool isASecondCycle = !(GameCycle % CYCLES_PER_SECOND);
 	// Unit list may be modified during loop... so make a copy
 	std::vector<CUnit *> units(UnitManager->GetUnits());
+	BeginSyncDebugCycle(GameCycle, units.size());
 
 	// Check for things that only happen every second
 	if (isASecondCycle) {
@@ -619,6 +783,7 @@ void UnitActions()
 	}
 	// Do all actions
 	UnitActionsEachCycle(units);
+	EndSyncDebugCycle();
 }
 
 //@}

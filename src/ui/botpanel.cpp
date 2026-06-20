@@ -59,6 +59,8 @@
 #include <cctype>
 #include <guisan/key.hpp>
 #include <guisan/sdl/sdlinput.hpp>
+#include <set>
+#include <string_view>
 #include <vector>
 #include <sstream>
 
@@ -78,6 +80,22 @@ int CurrentButtonLevel;
 std::vector<std::unique_ptr<ButtonAction>> UnitButtonTable;
 /// Pointer to current buttons
 std::vector<ButtonAction> CurrentButtons;
+
+static void WarnInvalidButtonSpell(const CUnit &unit, int spellId, std::string_view context, size_t size)
+{
+	static std::set<std::string> warned;
+	const std::string key = unit.Type->Ident + ":" + std::to_string(spellId) + ":" + std::string(context);
+	if (!warned.insert(key).second) {
+		return;
+	}
+	ErrorPrint("Warning: button panel %.*s references spell id %d for unit type '%s', "
+	           "but available spell state size is %zu\n",
+	           static_cast<int>(context.size()),
+	           context.data(),
+	           spellId,
+	           unit.Type->Ident.c_str(),
+	           size);
+}
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -270,8 +288,11 @@ static int GetButtonStatus(const ButtonAction &button, int UnderCursor)
 
 			// Autocast
 			if (ranges::all_of(Selected, [&](const CUnit *unit) {
-					Assert(!unit->AutoCastSpell.empty());
-					return unit->AutoCastSpell[button.Value];
+					if (button.Value < 0 || static_cast<size_t>(button.Value) >= unit->AutoCastSpell.size()) {
+						WarnInvalidButtonSpell(*unit, button.Value, "autocast status", unit->AutoCastSpell.size());
+						return false;
+					}
+					return static_cast<bool>(unit->AutoCastSpell[button.Value]);
 				})) {
 				res |= IconAutoCast;
 			}
@@ -731,10 +752,18 @@ void CButtonPanel::Draw()
 				gray = true;
 				break;
 			} else if (buttons[i].Action == ButtonCmd::SpellCast
-					   && unit->SpellCoolDownTimers[SpellTypeTable[buttons[i].Value]->Slot]) {
-				Assert(SpellTypeTable[buttons[i].Value]->CoolDown > 0);
-				cooldownSpell = true;
-				maxCooldown = std::max(maxCooldown, unit->SpellCoolDownTimers[SpellTypeTable[buttons[i].Value]->Slot]);
+					   && buttons[i].Value >= 0
+					   && static_cast<size_t>(buttons[i].Value) < SpellTypeTable.size()) {
+				if (SpellTypeTable[buttons[i].Value]->Slot >= unit->SpellCoolDownTimers.size()) {
+					WarnInvalidButtonSpell(*unit,
+					                       buttons[i].Value,
+					                       "cooldown status",
+					                       unit->SpellCoolDownTimers.size());
+				} else if (unit->SpellCoolDownTimers[SpellTypeTable[buttons[i].Value]->Slot]) {
+					Assert(SpellTypeTable[buttons[i].Value]->CoolDown > 0);
+					cooldownSpell = true;
+					maxCooldown = std::max(maxCooldown, unit->SpellCoolDownTimers[SpellTypeTable[buttons[i].Value]->Slot]);
+				}
 			}
 		}
 		//
@@ -1115,8 +1144,18 @@ void CButtonPanel::DoClicked_SpellCast(int button)
 		// for everyone
 
 		const bool autocast = ranges::any_of(
-			Selected, [&](const CUnit *unit) { return !unit->AutoCastSpell[spellId]; });
+			Selected, [&](const CUnit *unit) {
+				if (static_cast<size_t>(spellId) >= unit->AutoCastSpell.size()) {
+					WarnInvalidButtonSpell(*unit, spellId, "autocast toggle", unit->AutoCastSpell.size());
+					return true;
+				}
+				return !unit->AutoCastSpell[spellId];
+			});
 		for (CUnit *unit : Selected) {
+			if (static_cast<size_t>(spellId) >= unit->AutoCastSpell.size()) {
+				WarnInvalidButtonSpell(*unit, spellId, "autocast toggle", unit->AutoCastSpell.size());
+				continue;
+			}
 			if (unit->AutoCastSpell[spellId] != autocast) {
 				SendCommandAutoSpellCast(*unit, spellId, autocast);
 			}

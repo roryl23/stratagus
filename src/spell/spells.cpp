@@ -54,6 +54,8 @@
 #include "unit_find.h"
 #include "upgrade.h"
 
+#include <set>
+
 /*----------------------------------------------------------------------------
 -- Variables
 ----------------------------------------------------------------------------*/
@@ -62,6 +64,22 @@
 ** Define the names and effects of all im play available spells.
 */
 std::vector<std::unique_ptr<SpellType>> SpellTypeTable;
+
+static void WarnInvalidSpellCooldown(const CUnit &unit, const SpellType &spell, const char *context)
+{
+	static std::set<std::string> warned;
+	const std::string key = unit.Type->Ident + ":" + spell.Ident + ":" + context;
+	if (!warned.insert(key).second) {
+		return;
+	}
+	ErrorPrint("Warning: spell '%s' slot %zu is outside cooldown timer size %zu "
+	           "for unit type '%s' in %s\n",
+	           spell.Ident.c_str(),
+	           spell.Slot,
+	           unit.SpellCoolDownTimers.size(),
+	           unit.Type->Ident.c_str(),
+	           context);
+}
 
 
 /*----------------------------------------------------------------------------
@@ -90,7 +108,9 @@ static bool PassCondition(const CUnit &caster, const SpellType &spell, const CUn
 		return false;
 	}
 	// check countdown timer
-	if (caster.SpellCoolDownTimers[spell.Slot]) { // Check caster mana.
+	if (spell.Slot >= caster.SpellCoolDownTimers.size()) {
+		WarnInvalidSpellCooldown(caster, spell, "PassCondition");
+	} else if (caster.SpellCoolDownTimers[spell.Slot]) { // Check caster mana.
 		return false;
 	}
 	// Check caster's resources
@@ -441,10 +461,14 @@ bool CanCastSpell(const CUnit &caster, const SpellType &spell,
 */
 bool AutoCastSpell(CUnit &caster, const SpellType &spell)
 {
+	if (spell.Slot >= caster.SpellCoolDownTimers.size()) {
+		WarnInvalidSpellCooldown(caster, spell, "AutoCastSpell");
+	}
 	//  Check for mana and cooldown time, trivial optimization.
 	if (!SpellIsAvailable(*caster.Player, spell.Slot)
 		|| caster.Variable[MANA_INDEX].Value < spell.ManaCost
-		|| caster.SpellCoolDownTimers[spell.Slot]) {
+		|| (spell.Slot < caster.SpellCoolDownTimers.size()
+		    && caster.SpellCoolDownTimers[spell.Slot])) {
 		return false;
 	}
 	auto target = SelectTargetUnitsOfAutoCast(caster, spell);
@@ -523,7 +547,11 @@ int SpellCast(CUnit &caster, const SpellType &spell, CUnit *target, const Vec2i 
 			caster.Variable[MANA_INDEX].Value -= spell.ManaCost;
 		}
 		caster.Player->SubCosts(spell.Costs);
-		caster.SpellCoolDownTimers[spell.Slot] = spell.CoolDown;
+		if (spell.Slot < caster.SpellCoolDownTimers.size()) {
+			caster.SpellCoolDownTimers[spell.Slot] = spell.CoolDown;
+		} else {
+			WarnInvalidSpellCooldown(caster, spell, "SpellCast");
+		}
 		//
 		// Spells like blizzard are casted again.
 		// This is sort of confusing, we do the test again, to

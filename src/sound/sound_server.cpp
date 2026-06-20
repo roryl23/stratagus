@@ -51,6 +51,9 @@
 #include <SDL.h>
 #include <SDL_mixer.h>
 
+#ifdef USE_WIN32
+#include <windows.h>
+#endif
 #ifdef _MSC_VER
 # include <Shlobj.h>
 #endif
@@ -113,13 +116,13 @@ static void KillPlayingProcess() {
 		TerminateProcess(pi.hProcess, 0);
 		CloseHandle(g_hChildStd_IN_Wr);
 		g_hChildStd_IN_Wr = nullptr;
-		WaitForSingleObject(StatusThreadFunction, 0);
-		WaitForSingleObject(DebugThreadFunction, 0);
+		WaitForSingleObject(g_hStatusThread, 0);
+		WaitForSingleObject(g_hDebugThread, 0);
 	}
 }
 
 static bool External_Play(const std::string &file) {
-	static bool useNativeMidi = !Mix_HasMusicDecoder("TIMIDITY") || SDL_GetHintBoolean("SDL_NATIVE_MUSIC", SDL_FALSE);
+	static bool useNativeMidi = (!Mix_HasMusicDecoder("TIMIDITY") || SDL_GetHintBoolean("SDL_NATIVE_MUSIC", SDL_FALSE)) && strcmp(SDL_GetHint("SDL_AUDIODRIVER"), "dummy");
 	if (!useNativeMidi) {
 		return false;
 	}

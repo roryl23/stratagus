@@ -52,6 +52,9 @@
 #include "ui.h"
 #include "video.h"
 
+#include <algorithm>
+#include <set>
+
 /*----------------------------------------------------------------------------
 --  Documentation
 ----------------------------------------------------------------------------*/
@@ -1260,10 +1263,55 @@ void GraphicPlayerPixels(int colorIndex, const CGraphic &sprite)
 	// TODO: This vector allocation is costly in profiles
 	std::vector<SDL_Color> sdlColors = PlayerColorsSDL[colorIndex];
 	const auto palette = sprite.getSurface()->format->palette;
-	Assert(!palette || palette->ncolors > PlayerColorIndexStart + PlayerColorIndexCount);
-	SDL_SetPaletteColors(palette, &sdlColors[0], PlayerColorIndexStart, PlayerColorIndexCount);
-	if (sprite.SurfaceFlip) {
-		SDL_SetPaletteColors(sprite.SurfaceFlip->format->palette, &sdlColors[0], PlayerColorIndexStart, PlayerColorIndexCount);
+	if (palette && palette->ncolors <= PlayerColorIndexStart) {
+		static std::set<fs::path> warnedGraphics;
+		if (warnedGraphics.insert(sprite.File).second) {
+			ErrorPrint("Warning: graphic '%s' palette has only %d colors; player color remap "
+			           "requires entries starting at %d and will be skipped\n",
+			           sprite.File.string().c_str(),
+			           palette->ncolors,
+			           PlayerColorIndexStart);
+		}
+	} else if (palette) {
+		const int count = std::min(PlayerColorIndexCount, palette->ncolors - PlayerColorIndexStart);
+		if (count < PlayerColorIndexCount) {
+			static std::set<fs::path> warnedGraphics;
+			if (warnedGraphics.insert(sprite.File).second) {
+				ErrorPrint("Warning: graphic '%s' palette has only %d colors; player color remap "
+				           "needs entries %d..%d and will be clamped\n",
+				           sprite.File.string().c_str(),
+				           palette->ncolors,
+				           PlayerColorIndexStart,
+				           PlayerColorIndexStart + PlayerColorIndexCount - 1);
+			}
+		}
+		SDL_SetPaletteColors(palette, &sdlColors[0], PlayerColorIndexStart, count);
+	}
+	if (sprite.SurfaceFlip && sprite.SurfaceFlip->format->palette
+	    && sprite.SurfaceFlip->format->palette->ncolors <= PlayerColorIndexStart) {
+		static std::set<fs::path> warnedGraphics;
+		if (warnedGraphics.insert(sprite.File).second) {
+			ErrorPrint("Warning: flipped graphic '%s' palette has only %d colors; player color remap "
+			           "requires entries starting at %d and will be skipped\n",
+			           sprite.File.string().c_str(),
+			           sprite.SurfaceFlip->format->palette->ncolors,
+			           PlayerColorIndexStart);
+		}
+	} else if (sprite.SurfaceFlip && sprite.SurfaceFlip->format->palette) {
+		const int count = std::min(PlayerColorIndexCount,
+		                           sprite.SurfaceFlip->format->palette->ncolors - PlayerColorIndexStart);
+		if (count < PlayerColorIndexCount) {
+			static std::set<fs::path> warnedGraphics;
+			if (warnedGraphics.insert(sprite.File).second) {
+				ErrorPrint("Warning: flipped graphic '%s' palette has only %d colors; player color remap "
+				           "needs entries %d..%d and will be clamped\n",
+				           sprite.File.string().c_str(),
+				           sprite.SurfaceFlip->format->palette->ncolors,
+				           PlayerColorIndexStart,
+				           PlayerColorIndexStart + PlayerColorIndexCount - 1);
+			}
+		}
+		SDL_SetPaletteColors(sprite.SurfaceFlip->format->palette, &sdlColors[0], PlayerColorIndexStart, count);
 	}
 }
 
@@ -1274,6 +1322,18 @@ void GraphicPlayerPixels(int colorIndex, const CGraphic &sprite)
 */
 void SetPlayersPalette()
 {
+	if (PlayerColorsRGB.size() < PlayerMax) {
+		ErrorPrint("Warning: legacy savegame player palette has only %zu colors; "
+		           "filling missing colors with compatibility fallback\n",
+		           PlayerColorsRGB.size());
+		const std::vector<CColor> fallback(PlayerColorIndexCount);
+		const size_t definedColors = PlayerColorsRGB.size();
+		for (size_t i = definedColors; i < PlayerMax; ++i) {
+			PlayerColorsRGB.push_back(definedColors ? PlayerColorsRGB[i % definedColors] : fallback);
+			PlayerColorsSDL.emplace_back(PlayerColorsRGB.back().begin(), PlayerColorsRGB.back().end());
+		}
+	}
+
 	for (int i = 0; i < PlayerMax; ++i) {
 		Players[i].SetUnitColors(PlayerColorsRGB[i]);
 	}
