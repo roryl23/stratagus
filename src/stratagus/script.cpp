@@ -60,9 +60,9 @@
 --  Variables
 ----------------------------------------------------------------------------*/
 
-lua_State *Lua;                       /// Structure to work with lua files.
+lua_State *Lua; /// Structure to work with lua files.
 
-bool CclInConfigFile;                  /// True while config file parsing
+bool CclInConfigFile; /// True while config file parsing
 
 std::unique_ptr<INumberDesc> Damage; /// Damage calculation for missile.
 
@@ -84,7 +84,8 @@ extern UStrInt GetComponent(const CUnitType &type, int index, EnumVariable e, in
 **	original lua_isstring() returns true for either a string or a number
 **	this do strict checking for strings only
 **/
-int lua_isstring_strict(lua_State *luaStack, int idx) {
+int lua_isstring_strict(lua_State *luaStack, int idx)
+{
 	return lua_type(luaStack, idx) == LUA_TSTRING;
 }
 
@@ -93,7 +94,7 @@ int lua_isstring_strict(lua_State *luaStack, int idx) {
 */
 static void lstop(lua_State *l, lua_Debug *ar)
 {
-	(void)ar;  // unused arg.
+	(void) ar; // unused arg.
 	lua_sethook(l, nullptr, 0, 0);
 	luaL_error(l, "interrupted!");
 }
@@ -150,9 +151,9 @@ static int luatraceback(lua_State *L)
 		lua_pop(L, 2);
 		return 1;
 	}
-	lua_pushvalue(L, 1);  // pass error message
-	lua_pushnumber(L, 2);  // skip this function and traceback
-	lua_call(L, 2, 1);  // call debug.traceback
+	lua_pushvalue(L, 1); // pass error message
+	lua_pushnumber(L, 2); // skip this function and traceback
+	lua_call(L, 2, 1); // call debug.traceback
 	return 1;
 }
 
@@ -167,7 +168,7 @@ static int luatraceback(lua_State *L)
 */
 int LuaCall(int narg, int clear, bool exitOnError)
 {
-	const int base = lua_gettop(Lua) - narg;  // function index
+	const int base = lua_gettop(Lua) - narg; // function index
 	return LuaCall(Lua, narg, clear ? 0 : LUA_MULTRET, base, exitOnError);
 }
 
@@ -193,12 +194,12 @@ int LuaCall(lua_State *L, int narg, int nresults, int base, bool exitOnError)
 	ErrorPrint("\n===============\n%s\n\n", str);
 #endif
 
-	lua_pushcfunction(L, luatraceback);  // push traceback function
-	lua_insert(L, base);  // put it under chunk and args
+	lua_pushcfunction(L, luatraceback); // push traceback function
+	lua_insert(L, base); // put it under chunk and args
 	signal(SIGINT, laction);
 	const int status = lua_pcall(L, narg, nresults, base);
 	signal(SIGINT, SIG_DFL);
-	lua_remove(L, base);  // remove traceback function
+	lua_remove(L, base); // remove traceback function
 
 	return report(status, exitOnError);
 }
@@ -206,7 +207,7 @@ int LuaCall(lua_State *L, int narg, int nresults, int base, bool exitOnError)
 /**
 **  Get the (uncompressed) content of the file into a string
 */
-static std::optional<std::string> GetFileContent(const fs::path& file)
+static std::optional<std::string> GetFileContent(const fs::path &file)
 {
 	CFile fp;
 
@@ -256,7 +257,8 @@ int LuaLoadFile(const fs::path &file, const std::string &strArg, bool exitOnErro
 	// save the current __file__
 	lua_getglobal(Lua, "__file__");
 
-	const int status = luaL_loadbuffer(Lua, content->c_str(), content->size(), file.string().c_str());
+	const int status =
+		luaL_loadbuffer(Lua, content->c_str(), content->size(), file.string().c_str());
 
 	if (!status) {
 		lua_pushstring(Lua, fs::absolute(fs::path(file)).generic_u8string().c_str());
@@ -441,7 +443,6 @@ bool LuaToBoolean(lua_State *l, int index, int subIndex)
 	return res;
 }
 
-
 /**
 **  Perform lua garbage collection
 */
@@ -574,7 +575,6 @@ CUnitType **CclParseTypeDesc(lua_State *l)
 	return res;
 }
 
-
 /**
 **  Add a Lua handler
 **
@@ -656,7 +656,8 @@ std::unique_ptr<INumberDesc> CclParseNumberDesc(lua_State *l)
 	if (lua_isnumber(l, -1)) {
 		res = std::make_unique<NumberDescInt>(LuaToNumber(l, -1));
 	} else if (lua_isfunction(l, -1)) {
-		res = std::make_unique<NumberDescLuaFunction>(ParseLuaFunction(l, "_numberfunction_", &NumberCounter));
+		res = std::make_unique<NumberDescLuaFunction>(
+			ParseLuaFunction(l, "_numberfunction_", &NumberCounter));
 	} else if (lua_istable(l, -1)) {
 		const int nargs = lua_rawlen(l, -1);
 		if (nargs != 2) {
@@ -721,7 +722,8 @@ std::unique_ptr<INumberDesc> CclParseNumberDesc(lua_State *l)
 					LuaError(l, "Bad param %s for Unit", key.data());
 				}
 			}
-			res = std::make_unique<NumberDescUnitStat>(std::move(unitDesc), varIndex, component, loc);
+			res =
+				std::make_unique<NumberDescUnitStat>(std::move(unitDesc), varIndex, component, loc);
 			lua_pop(l, 1); // pop the table.
 		} else if (key == "TypeVar") {
 			Assert(lua_istable(l, -1));
@@ -804,7 +806,8 @@ std::unique_ptr<INumberDesc> CclParseNumberDesc(lua_State *l)
 				lua_rawgeti(l, -1, 3); // Else.
 				falseValue = CclParseNumberDesc(l);
 			}
-			res = std::make_unique<NumberDescIf>(std::move(cond), std::move(trueValue), std::move(falseValue));
+			res = std::make_unique<NumberDescIf>(
+				std::move(cond), std::move(trueValue), std::move(falseValue));
 
 			lua_pop(l, 1); // table.
 		} else if (key == "PlayerData") {
@@ -820,7 +823,8 @@ std::unique_ptr<INumberDesc> CclParseNumberDesc(lua_State *l)
 				lua_rawgeti(l, -1, 3); // Res type.
 				resType = CclParseStringDesc(l);
 			}
-			res = std::make_unique<NumberDescPlayerData>(std::move(player), std::move(dataType), std::move(resType));
+			res = std::make_unique<NumberDescPlayerData>(
+				std::move(player), std::move(dataType), std::move(resType));
 
 			lua_pop(l, 1); // table.
 		} else {
@@ -848,7 +852,8 @@ std::unique_ptr<IStringDesc> CclParseStringDesc(lua_State *l)
 	if (lua_isstring(l, -1)) {
 		res = std::make_unique<StringDescString>(std::string(LuaToString(l, -1)));
 	} else if (lua_isfunction(l, -1)) {
-		res = std::make_unique<StringDescLuaFunction>(ParseLuaFunction(l, "_stringfunction_", &StringCounter));
+		res = std::make_unique<StringDescLuaFunction>(
+			ParseLuaFunction(l, "_stringfunction_", &StringCounter));
 	} else if (lua_istable(l, -1)) {
 		const int nargs = lua_rawlen(l, -1);
 		if (nargs != 2) {
@@ -888,7 +893,8 @@ std::unique_ptr<IStringDesc> CclParseStringDesc(lua_State *l)
 				BFalse = CclParseStringDesc(l);
 			}
 			lua_pop(l, 1); // table.
-			res = std::make_unique<StringDescIf>(std::move(Cond), std::move(BTrue), std::move(BFalse));
+			res = std::make_unique<StringDescIf>(
+				std::move(Cond), std::move(BTrue), std::move(BFalse));
 		} else if (key == "SubString") {
 			if (lua_rawlen(l, -1) != 2 && lua_rawlen(l, -1) != 3) {
 				LuaError(l, "Bad number of args in SubString\n");
@@ -903,7 +909,8 @@ std::unique_ptr<IStringDesc> CclParseStringDesc(lua_State *l)
 				End = CclParseNumberDesc(l);
 			}
 			lua_pop(l, 1); // table.
-			res = std::make_unique<StringDescSubString>(std::move(String), std::move(Begin), std::move(End));
+			res = std::make_unique<StringDescSubString>(
+				std::move(String), std::move(Begin), std::move(End));
 		} else if (key == "Line") {
 			if (lua_rawlen(l, -1) < 2 || lua_rawlen(l, -1) > 4) {
 				LuaError(l, "Bad number of args in Line\n");
@@ -917,7 +924,7 @@ std::unique_ptr<IStringDesc> CclParseStringDesc(lua_State *l)
 				lua_rawgeti(l, -1, 3); // Length.
 				MaxLen = CclParseNumberDesc(l);
 			}
-			CFont* Font = nullptr;
+			CFont *Font = nullptr;
 			if (lua_rawlen(l, -1) >= 4) {
 				lua_rawgeti(l, -1, 4); // Font.
 				Font = CFont::Get(LuaToString(l, -1));
@@ -927,7 +934,8 @@ std::unique_ptr<IStringDesc> CclParseStringDesc(lua_State *l)
 				lua_pop(l, 1); // font name.
 			}
 			lua_pop(l, 1); // table.
-			res = std::make_unique<StringDescLine>(std::move(String), std::move(Line), std::move(MaxLen), Font);
+			res = std::make_unique<StringDescLine>(
+				std::move(String), std::move(Line), std::move(MaxLen), Font);
 		} else if (key == "PlayerName") {
 			res = std::make_unique<StringDescPlayerName>(CclParseNumberDesc(l));
 		} else {
@@ -957,7 +965,6 @@ CUnit *EvalUnit(const IUnitDesc &unitdesc)
 	}
 	return unitdesc.eval();
 }
-
 
 int NumberDescLuaFunction::eval() const /* override */
 {
@@ -1014,7 +1021,7 @@ int NumberDescRand::eval() const /* override */
 }
 int NumberDescUnitStat::eval() const /* override */
 {
-	const auto* unit = EvalUnit(*unitDesc);
+	const auto *unit = EvalUnit(*unitDesc);
 
 	if (unit != nullptr) {
 		return std::get<int>(GetComponent(*unit, varIndex, component, loc));
@@ -1093,7 +1100,7 @@ std::string StringDescConcat::eval() const
 {
 	std::string res;
 
-	for (const auto& s : strings) {
+	for (const auto &s : strings) {
 		res += EvalString(*s);
 	}
 	return res;
@@ -1225,7 +1232,7 @@ static int AliasTypeVar(lua_State *l, const char *s)
 		for (i = 0; sloc[i] != nullptr; i++) {
 			if (key == sloc[i]) {
 				lua_pushnumber(l, i);
-				break ;
+				break;
 			}
 		}
 		if (sloc[i] == nullptr) {
@@ -1286,7 +1293,7 @@ static int AliasUnitVar(lua_State *l, const char *s)
 		for (i = 0; sloc[i] != nullptr; i++) {
 			if (key == sloc[i]) {
 				lua_pushnumber(l, i);
-				break ;
+				break;
 			}
 		}
 		if (sloc[i] == nullptr) {
@@ -1364,7 +1371,6 @@ static int CclActiveTypeVar(lua_State *l)
 	}
 	return AliasTypeVar(l, "Type");
 }
-
 
 /**
 **  Make alias for some function.
@@ -1567,8 +1573,6 @@ static int CclNotEqual(lua_State *l)
 	LuaCheckArgs(l, 2);
 	return Alias(l, "NotEqual");
 }
-
-
 
 /**
 **  Return equivalent lua table for Concat.
@@ -1780,7 +1784,6 @@ static int CclPlayerName(lua_State *l)
 	return Alias(l, "PlayerName");
 }
 
-
 static void AliasRegister()
 {
 	// Number.
@@ -1800,7 +1803,6 @@ static void AliasRegister()
 	lua_register(Lua, "NotEqual", CclNotEqual);
 	lua_register(Lua, "VideoTextLength", CclVideoTextLength);
 	lua_register(Lua, "StringFind", CclStringFind);
-
 
 	// Unit
 	lua_register(Lua, "AttackerVar", CclUnitAttackerVar);
@@ -1881,7 +1883,7 @@ static int CclFilteredListDirectory(lua_State *l, int type, int mask)
 	}
 	lua_newtable(l);
 	int j = 0;
-	for (const auto& flp : ReadDataDirectory(dir)) {
+	for (const auto &flp : ReadDataDirectory(dir)) {
 		if ((flp.type & mask) == type) {
 			lua_pushnumber(l, j + 1);
 			lua_pushstring(l, flp.name.string().c_str());
@@ -1928,7 +1930,7 @@ static int CclSetDamageFormula(lua_State *l)
 	return 0;
 }
 
-std::string getLuaLocation(lua_State* l)
+std::string getLuaLocation(lua_State *l)
 {
 	lua_Debug ar;
 	lua_getstack(l, 1, &ar);
@@ -2016,19 +2018,17 @@ extern int tolua_stratagus_open(lua_State *tolua_S);
 void InitLua()
 {
 	// For security we don't load all libs
-	static const luaL_Reg lualibs[] = {
-		{"", luaopen_base},
-		{LUA_TABLIBNAME, luaopen_table},
+	static const luaL_Reg lualibs[] = {{"", luaopen_base},
+	                                   {LUA_TABLIBNAME, luaopen_table},
 #ifdef DEBUG
-		{LUA_LOADLIBNAME, luaopen_package},
+	                                   {LUA_LOADLIBNAME, luaopen_package},
 #endif
-		{LUA_OSLIBNAME, luaopen_os},
-		{LUA_IOLIBNAME, luaopen_io},
-		{LUA_STRLIBNAME, luaopen_string},
-		{LUA_MATHLIBNAME, luaopen_math},
-		{LUA_DBLIBNAME, luaopen_debug},
-		{nullptr, nullptr}
-	};
+	                                   {LUA_OSLIBNAME, luaopen_os},
+	                                   {LUA_IOLIBNAME, luaopen_io},
+	                                   {LUA_STRLIBNAME, luaopen_string},
+	                                   {LUA_MATHLIBNAME, luaopen_math},
+	                                   {LUA_DBLIBNAME, luaopen_debug},
+	                                   {nullptr, nullptr}};
 
 	Lua = luaL_newstate();
 
@@ -2043,21 +2043,28 @@ void InitLua()
 #endif
 	}
 #if defined(DEBUG) && !defined(WIN32)
-	static const char* mobdebug =
-#include "./lua/mobdebug.luaheader"
-;
-	int status = luaL_loadbuffer(Lua, mobdebug, strlen(mobdebug), "mobdebug.lua");
-	if (!status) {
-		status = LuaCall(0, 0, false);
+	lua_getglobal(Lua, "require");
+	lua_pushliteral(Lua, "socket");
+	if (lua_pcall(Lua, 1, 1, 0) == 0) {
+		lua_pop(Lua, 1);
+		static const char *mobdebug =
+# include "./lua/mobdebug.luaheader"
+			;
+		int status = luaL_loadbuffer(Lua, mobdebug, strlen(mobdebug), "mobdebug.lua");
 		if (!status) {
-			ErrorPrint("mobdebug loaded and available via mobdebug.start()\n");
-			lua_setglobal(Lua, "mobdebug");
+			status = LuaCall(0, 0, false);
+			if (!status) {
+				ErrorPrint("mobdebug loaded and available via mobdebug.start()\n");
+				lua_setglobal(Lua, "mobdebug");
+			}
 		}
+		report(status, false);
+	} else {
+		lua_pop(Lua, 1);
 	}
-	report(status, false);
 #endif
 	tolua_stratagus_open(Lua);
-	lua_settop(Lua, 0);  // discard any results
+	lua_settop(Lua, 0); // discard any results
 }
 
 /*
@@ -2358,15 +2365,15 @@ static std::optional<std::string> LuaValueToString(lua_State *l)
 	const int type_value = lua_type(l, -1);
 
 	switch (type_value) {
-		case LUA_TNIL:
-			return "nil";
-		case LUA_TNUMBER:
-			return lua_tostring(l, -1); // let lua do the conversion
-		case LUA_TBOOLEAN: {
+		case LUA_TNIL: return "nil";
+		case LUA_TNUMBER: return lua_tostring(l, -1); // let lua do the conversion
+		case LUA_TBOOLEAN:
+		{
 			const bool b = lua_toboolean(l, -1);
 			return b ? "true" : "false";
 		}
-		case LUA_TSTRING: {
+		case LUA_TSTRING:
+		{
 			const std::string s = lua_tostring(l, -1);
 
 			if ((s.find('\n') != std::string::npos)) {
@@ -2383,8 +2390,7 @@ static std::optional<std::string> LuaValueToString(lua_State *l)
 				return res;
 			}
 		}
-		case LUA_TTABLE:
-			return std::nullopt;
+		case LUA_TTABLE: return std::nullopt;
 		case LUA_TFUNCTION:
 			// Could be done with string.dump(function)
 			// and debug.getinfo(function).name (could be nil for anonymous function)
@@ -2394,7 +2400,7 @@ static std::optional<std::string> LuaValueToString(lua_State *l)
 		case LUA_TTHREAD:
 		case LUA_TLIGHTUSERDATA:
 		case LUA_TNONE:
-		default : // no other cases
+		default: // no other cases
 			return std::nullopt;
 	}
 }
@@ -2413,7 +2419,7 @@ static std::string SaveGlobal(lua_State *l, bool is_root, std::vector<std::strin
 {
 	//Assert(!is_root || !lua_gettop(l));
 	if (is_root) {
-		lua_getglobal(l, "_G");// global table in lua.
+		lua_getglobal(l, "_G"); // global table in lua.
 	}
 	std::string res;
 	const std::string tablesName = ConcatTableString(blockTableNames);
@@ -2427,9 +2433,8 @@ static std::string SaveGlobal(lua_State *l, bool is_root, std::vector<std::strin
 	while (lua_next(l, -2)) {
 		const int type_key = lua_type(l, -2);
 		std::string key = (type_key == LUA_TSTRING) ? lua_tostring(l, -2) : "";
-		if ((key == "_G")
-			|| (is_root && ShouldGlobalTableBeSaved(key) == false)
-			|| (!is_root && ShouldLocalTableBeSaved(key) == false)) {
+		if ((key == "_G") || (is_root && ShouldGlobalTableBeSaved(key) == false)
+		    || (!is_root && ShouldLocalTableBeSaved(key) == false)) {
 			lua_pop(l, 1); // pop the value
 			continue;
 		}
@@ -2457,8 +2462,7 @@ static std::string SaveGlobal(lua_State *l, bool is_root, std::vector<std::strin
 					lua_pop(l, 1);
 				}
 				//res += "if (" + lhsLine + " == nil) then " + lhsLine + " = {} end\n";
-				if (ranges::find(blockTableNames, key) == blockTableNames.end() && key != "[]")
-				{
+				if (ranges::find(blockTableNames, key) == blockTableNames.end() && key != "[]") {
 					lua_pushvalue(l, -1);
 					blockTableNames.push_back(key);
 					res += SaveGlobal(l, false, blockTableNames);
@@ -2600,7 +2604,7 @@ std::vector<fs::path> getVolumes()
 		fs::path r = GetAVolumePath(VolumeName);
 		if (!r.empty()) {
 			result.push_back(r);
- 			wprintf(L"  Path: %s\n", r.wstring().c_str());
+			wprintf(L"  Path: %s\n", r.wstring().c_str());
 		}
 
 		//  Move on to the next volume.
@@ -2635,7 +2639,7 @@ static int CclListFilesystem(lua_State *l)
 		std::vector<fs::path> vols = getVolumes();
 		lua_newtable(l);
 		int j = 0;
-		for (auto const& vol: vols) {
+		for (auto const &vol : vols) {
 			if (fs::exists(vol)) {
 				lua_pushnumber(l, ++j);
 				lua_pushstring(l, vol.generic_u8string().c_str());
@@ -2648,8 +2652,9 @@ static int CclListFilesystem(lua_State *l)
 
 	lua_newtable(l);
 	int j = 0;
-	for (auto const& dir_entry: fs::directory_iterator(fs::path(dir))) {
-		if ((fs::is_regular_file(dir_entry.path()) || fs::is_directory(dir_entry.path())) && fs::exists(dir_entry.path())) {
+	for (auto const &dir_entry : fs::directory_iterator(fs::path(dir))) {
+		if ((fs::is_regular_file(dir_entry.path()) || fs::is_directory(dir_entry.path()))
+		    && fs::exists(dir_entry.path())) {
 			std::string name = dir_entry.path().generic_u8string();
 			if (fs::is_directory(dir_entry.path())) {
 				name += "/";

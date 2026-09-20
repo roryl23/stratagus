@@ -28,21 +28,20 @@
 //      02111-1307, USA.
 //
 
-
 //@{
 
 /*----------------------------------------------------------------------------
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include <numeric>
+#include "sound_server.h"
 
 #include "stratagus.h"
 
-#include "sound_server.h"
+#include <numeric>
 
 #ifdef USE_FLUIDSYNTH
-#include "fluidsynth.h"
+# include "fluidsynth.h"
 #endif
 
 #include "iolib.h"
@@ -66,7 +65,7 @@ static const int NotYetLoadedMagic = static_cast<int>(0xcafebeef);
 
 uint32_t SDL_SOUND_FINISHED;
 
-static bool SoundInitialized;    /// is sound initialized
+static bool SoundInitialized; /// is sound initialized
 static bool MusicEnabled = true;
 static bool EffectsEnabled = true;
 static double VolumeScale = 1.0;
@@ -80,12 +79,13 @@ static HANDLE g_hDebugThread;
 static HANDLE g_hChildStd_IN_Wr;
 static PROCESS_INFORMATION pi;
 
-static DWORD WINAPI StatusThreadFunction(LPVOID lpParam) {
+static DWORD WINAPI StatusThreadFunction(LPVOID lpParam)
+{
 	CHAR chStatus;
 	DWORD dwRead = 1;
 	while (1) {
-		if (!ReadFile((HANDLE)lpParam, &chStatus, 1, &dwRead, nullptr) || dwRead == 0) {
-			CloseHandle((HANDLE)lpParam);
+		if (!ReadFile((HANDLE) lpParam, &chStatus, 1, &dwRead, nullptr) || dwRead == 0) {
+			CloseHandle((HANDLE) lpParam);
 			break;
 		}
 		// any write means we finished
@@ -97,12 +97,13 @@ static DWORD WINAPI StatusThreadFunction(LPVOID lpParam) {
 	return 0;
 }
 
-static DWORD WINAPI DebugThreadFunction(LPVOID lpParam) {
+static DWORD WINAPI DebugThreadFunction(LPVOID lpParam)
+{
 	DWORD dwRead = 1;
 	while (1) {
 		char chStatus[1024] = {'\0'};
-		if (!ReadFile((HANDLE)lpParam, chStatus, 1024, &dwRead, nullptr) || dwRead == 0) {
-			CloseHandle((HANDLE)lpParam);
+		if (!ReadFile((HANDLE) lpParam, chStatus, 1024, &dwRead, nullptr) || dwRead == 0) {
+			CloseHandle((HANDLE) lpParam);
 			break;
 		}
 		DebugPrint("%s", chStatus);
@@ -110,7 +111,8 @@ static DWORD WINAPI DebugThreadFunction(LPVOID lpParam) {
 	return 0;
 }
 
-static void KillPlayingProcess() {
+static void KillPlayingProcess()
+{
 	externalPlayerIsPlaying = false;
 	if (g_hChildStd_IN_Wr) {
 		TerminateProcess(pi.hProcess, 0);
@@ -172,15 +174,18 @@ static bool External_Play(const std::string &file) {
 		SetHandleInformation(g_hChildStd_IN_Wr, HANDLE_FLAG_INHERIT, 0);
 
 		// start the process
-#if defined(WIN32) && defined(UNICODE)
+# if defined(WIN32) && defined(UNICODE)
 		auto volumeStr = std::to_wstring(std::min(MusicVolume, 127));
 		auto full_filenameStr = full_filename.wstring();
-#else
+# else
 		auto volumeStr = std::to_string(std::min(MusicVolume, 127));
 		auto full_filenameStr = full_filename.string();
-#endif
+# endif
 		auto args = QuoteArguments({L("stratagus-midiplayer.exe"), volumeStr, full_filenameStr});
-		auto cmd = std::accumulate(std::next(args.begin()), args.end(), args[0], [](const auto& lhs, const auto& rhs) { return lhs + L(" ") + rhs; });
+		auto cmd = std::accumulate(
+			std::next(args.begin()), args.end(), args[0], [](const auto &lhs, const auto &rhs) {
+				return lhs + L(" ") + rhs;
+			});
 		DebugPrint("Using external command to play midi on windows: %s\n", cmd.c_str());
 		STARTUPINFO si;
 		ZeroMemory(&si, sizeof(si));
@@ -193,13 +198,24 @@ static bool External_Play(const std::string &file) {
 		bool result = true;
 		TCHAR cmdline[4096]{};
 		std::copy(cmd.begin(), cmd.end(), cmdline);
-		if (CreateProcess(nullptr, cmdline, nullptr, nullptr, TRUE, /* Handles are inherited */ CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+		if (CreateProcess(nullptr,
+		                  cmdline,
+		                  nullptr,
+		                  nullptr,
+		                  TRUE,
+		                  /* Handles are inherited */ CREATE_NO_WINDOW,
+		                  nullptr,
+		                  nullptr,
+		                  &si,
+		                  &pi)) {
 			CloseHandle(hChildStd_OUT_Wr);
 			CloseHandle(hChildStd_ERR_Wr);
 			CloseHandle(hChildStd_IN_Rd);
 			externalPlayerIsPlaying = true;
-			g_hStatusThread = CreateThread(nullptr, 0, StatusThreadFunction, hChildStd_OUT_Rd, 0, nullptr);
-			g_hDebugThread = CreateThread(nullptr, 0, DebugThreadFunction, hChildStd_ERR_Rd, 0, nullptr);
+			g_hStatusThread =
+				CreateThread(nullptr, 0, StatusThreadFunction, hChildStd_OUT_Rd, 0, nullptr);
+			g_hDebugThread =
+				CreateThread(nullptr, 0, DebugThreadFunction, hChildStd_ERR_Rd, 0, nullptr);
 		} else {
 			result = false;
 			ErrorPrint("CreateProcess failed (%d).\n", GetLastError());
@@ -210,11 +226,13 @@ static bool External_Play(const std::string &file) {
 	return false;
 }
 
-static bool External_IsPlaying() {
+static bool External_IsPlaying()
+{
 	return externalPlayerIsPlaying;
 }
 
-static bool External_Stop() {
+static bool External_Stop()
+{
 	if (External_IsPlaying()) {
 		KillPlayingProcess();
 		return true;
@@ -222,7 +240,8 @@ static bool External_Stop() {
 	return false;
 }
 
-static bool External_Volume(int volume, int oldVolume) {
+static bool External_Volume(int volume, int oldVolume)
+{
 	if (External_IsPlaying()) {
 		char buf[2] = {0, volume & 0xFF};
 		if (!WriteFile(g_hChildStd_IN_Wr, buf, 2, nullptr, nullptr)) {
@@ -234,27 +253,32 @@ static bool External_Volume(int volume, int oldVolume) {
 	return false;
 }
 #else
-static bool External_Play(const std::string & /*file*/) {
+static bool External_Play(const std::string & /*file*/)
+{
 	return false;
 }
-static bool External_IsPlaying() {
+static bool External_IsPlaying()
+{
 	return false;
 }
-static bool External_Stop() {
+static bool External_Stop()
+{
 	return false;
 }
-static bool External_Volume(int /*volume*/, int /*oldVolume*/) {
+static bool External_Volume(int /*volume*/, int /*oldVolume*/)
+{
 	return false;
 }
 #endif
 
 /// Channels for sound effects and unit speech
-struct SoundChannel {
-	std::unique_ptr<Origin> Unit;          /// pointer to unit, who plays the sound, if any
+struct SoundChannel
+{
+	std::unique_ptr<Origin> Unit; /// pointer to unit, who plays the sound, if any
 	void (*FinishedCallback)(int channel) = nullptr; /// Callback for when a sample finishes playing
 };
 
-#define MaxChannels 64     /// How many channels are supported
+#define MaxChannels 64 /// How many channels are supported
 
 static SoundChannel Channels[MaxChannels];
 
@@ -300,7 +324,7 @@ static void ChannelFinished(int channel)
 		SDL_zero(event);
 		event.type = SDL_SOUND_FINISHED;
 		event.user.code = channel;
-		event.user.data1 = (void*) Channels[channel].FinishedCallback;
+		event.user.data1 = (void *) Channels[channel].FinishedCallback;
 		SDL_PeepEvents(&event, 1, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
 	}
 	Channels[channel].Unit = nullptr;
@@ -419,7 +443,7 @@ static sdl2::ChunkPtr LoadSample(const char *name)
 #ifdef DYNAMIC_LOAD
 	sdl2::ChunkPtr r{(Mix_Chunk *) SDL_calloc(sizeof(Mix_Chunk), 1)};
 	r->allocated = NotYetLoadedMagic;
-	r->abuf = (Uint8 *)(strdup(name));
+	r->abuf = (Uint8 *) (strdup(name));
 	return r;
 #else
 	return ForceLoadSample(name);
@@ -500,7 +524,7 @@ static int PlaySample(Mix_Chunk *sample, Origin *origin, void (*callback)(int ch
 		DebugPrint("play sample %d\n", sample->volume);
 #ifdef DYNAMIC_LOAD
 		if (sample->allocated == NotYetLoadedMagic) {
-			char *name = (char*)(sample->abuf);
+			char *name = (char *) (sample->abuf);
 			if (auto loadedSample = ForceLoadSample(name)) {
 				std::swap(*sample, *loadedSample);
 			} else {
@@ -695,18 +719,25 @@ static bool InitSdlSound()
 {
 	fs::path timidityCfg(StratagusLibPath);
 	timidityCfg = timidityCfg / "timidity" / "timidity.cfg";
-#ifndef BUILD_VENDORED_SDL
+	const fs::path freepatsDir = GetExecutablePath().parent_path() / "freepats";
+	const fs::path bundledTimidityCfg = freepatsDir / "freepats.cfg";
+	const fs::path legacyBundledTimidityCfg = freepatsDir / "crude.cfg";
 	const char *cfg = SDL_getenv("TIMIDITY_CFG");
+#ifndef BUILD_VENDORED_SDL
 	if (!cfg && fs::exists(timidityCfg)) {
 		SDL_setenv("TIMIDITY_CFG", timidityCfg.generic_u8string().c_str(), 0);
-	} else {
-		SDL_setenv("TIMIDITY_CFG", (GetExecutablePath().parent_path() / "freepats" / "crude.cfg").generic_u8string().c_str(), 0);
+	} else if (!cfg && fs::exists(bundledTimidityCfg)) {
+		SDL_setenv("TIMIDITY_CFG", bundledTimidityCfg.generic_u8string().c_str(), 0);
+	} else if (!cfg && fs::exists(legacyBundledTimidityCfg)) {
+		SDL_setenv("TIMIDITY_CFG", legacyBundledTimidityCfg.generic_u8string().c_str(), 0);
 	}
 #else
 	if (fs::exists(timidityCfg)) {
 		Mix_SetTimidityCfg(timidityCfg.generic_u8string().c_str());
-	} else {
-		Mix_SetTimidityCfg((GetExecutablePath().parent_path() / "freepats" / "crude.cfg").generic_u8string().c_str());
+	} else if (fs::exists(bundledTimidityCfg)) {
+		Mix_SetTimidityCfg(bundledTimidityCfg.generic_u8string().c_str());
+	} else if (fs::exists(legacyBundledTimidityCfg)) {
+		Mix_SetTimidityCfg(legacyBundledTimidityCfg.generic_u8string().c_str());
 	}
 #endif
 	// just activate everything we can by setting all bits
