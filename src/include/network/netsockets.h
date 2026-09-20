@@ -39,15 +39,16 @@ class CHost
 {
 public:
 	CHost() : ip(0), port(0) {}
-	CHost(const std::string& name, int port);
+	CHost(const std::string &name, int port);
 	CHost(unsigned long ip, int port) : ip(ip), port(port) {}
 	unsigned long getIp() const { return ip; }
 	int getPort() const { return port; }
 	std::string toString() const;
 	bool isValid() const;
 
-	bool operator == (const CHost &rhs) const { return ip == rhs.ip && port == rhs.port; }
-	bool operator != (const CHost &rhs) const { return !(*this == rhs); }
+	bool operator==(const CHost &rhs) const { return ip == rhs.ip && port == rhs.port; }
+	bool operator!=(const CHost &rhs) const { return !(*this == rhs); }
+
 private:
 	unsigned long ip;
 	int port;
@@ -76,8 +77,10 @@ public:
 	class CStatistic
 	{
 		friend class CUDPSocket;
+
 	public:
 		CStatistic() = default;
+
 	public:
 		unsigned int sentPacketsCount = 0;
 		unsigned int receivedPacketsCount = 0;
@@ -91,6 +94,7 @@ public:
 
 	void clearStatistic() { m_statistic = {}; }
 	const CStatistic &getStatistic() const { return m_statistic; }
+
 private:
 	CStatistic m_statistic;
 #endif
@@ -110,10 +114,11 @@ public:
 	bool Connect(const CHost &host);
 	int Send(const void *buf, unsigned int len);
 	int Recv(void *buf, int len);
-	void SetNonBlocking();
+	bool SetNonBlocking();
 	//
 	int HasDataToRead(int timeout);
 	bool IsValid() const;
+
 private:
 	std::unique_ptr<CTCPSocket_Impl> m_impl;
 };

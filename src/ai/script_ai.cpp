@@ -33,22 +33,25 @@
 /*----------------------------------------------------------------------------
 --  Includes
 ----------------------------------------------------------------------------*/
-
-#include "network.h"
-#include "net_lowlevel.h"
-#include "stratagus.h"
-
 #include "ai.h"
 #include "ai_local.h"
-
 #include "interface.h"
+#include "net_lowlevel.h"
+#include "network.h"
 #include "pathfinder.h"
 #include "player.h"
 #include "script.h"
+#include "stratagus.h"
 #include "unit.h"
 #include "unit_manager.h"
 #include "unittype.h"
 #include "upgrade.h"
+
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <thread>
+#include <vector>
 
 /**
 **  Insert new unit-type element.
@@ -57,8 +60,8 @@
 **  @param n      Index to insert new into table
 **  @param base   Base type to insert into table.
 */
-static void AiHelperInsert(std::vector<std::vector<CUnitType *> > &table,
-						   unsigned int n, CUnitType &base)
+static void
+AiHelperInsert(std::vector<std::vector<CUnitType *>> &table, unsigned int n, CUnitType &base)
 {
 	if (n >= table.size()) {
 		table.resize(n + 1);
@@ -120,7 +123,8 @@ static std::vector<CUnitType *> getSupplyUnits()
 	std::vector<CUnitType *> sorted_res;
 
 	for (CUnitType *type : getUnitTypes()) {
-		if (type->DefaultStat.Variables[SUPPLY_INDEX].Value > 0) { //supply units are identified as being those with a default stat supply of 1 or more; so if a unit has a supply default stat of 0, but through an upgrade ends up having 1 or more supply, it won't be included here
+		if (type->DefaultStat.Variables[SUPPLY_INDEX].Value
+		    > 0) { //supply units are identified as being those with a default stat supply of 1 or more; so if a unit has a supply default stat of 0, but through an upgrade ends up having 1 or more supply, it won't be included here
 			res.push_back(type);
 		}
 	}
@@ -133,7 +137,9 @@ static std::vector<CUnitType *> getSupplyUnits()
 			unsigned int cost = 0;
 
 			for (unsigned j = 0; j < MaxCosts; ++j) {
-				cost += type->DefaultStat.Costs[j]; //this cannot be MapDefaultStat because this function is called when the AiHelper is defined, rather than when a game is started
+				cost +=
+					type->DefaultStat.Costs
+						[j]; //this cannot be MapDefaultStat because this function is called when the AiHelper is defined, rather than when a game is started
 			}
 			const float score = ((float) type->DefaultStat.Variables[SUPPLY_INDEX].Value) / cost;
 			if (score > bestscore) {
@@ -195,7 +201,6 @@ static std::vector<CUnitType *> getRefineryUnits()
 #else
 	return res;
 #endif
-
 }
 
 /**
@@ -234,14 +239,15 @@ static void InitAiHelper(AiHelper &aiHelper)
 		const std::vector<CUnitType *> &unitmask = getUnitTypeFromString(button->UnitMask);
 
 		switch (button->Action) {
-			case ButtonCmd::Repair :
+			case ButtonCmd::Repair:
 				for (CUnitType *type : unitmask) {
 					for (CUnitType *reparableUnit : reparableUnits) {
 						AiHelperInsert(aiHelper.Repair(), reparableUnit->Slot, *type);
 					}
 				}
 				break;
-			case ButtonCmd::Build: {
+			case ButtonCmd::Build:
+			{
 				CUnitType &buildingType = UnitTypeByIdent(button->ValueStr);
 
 				for (CUnitType *type : unitmask) {
@@ -249,7 +255,8 @@ static void InitAiHelper(AiHelper &aiHelper)
 				}
 				break;
 			}
-			case ButtonCmd::Train : {
+			case ButtonCmd::Train:
+			{
 				CUnitType &trainingType = UnitTypeByIdent(button->ValueStr);
 
 				for (CUnitType *type : unitmask) {
@@ -257,7 +264,8 @@ static void InitAiHelper(AiHelper &aiHelper)
 				}
 				break;
 			}
-			case ButtonCmd::UpgradeTo : {
+			case ButtonCmd::UpgradeTo:
+			{
 				CUnitType &upgradeToType = UnitTypeByIdent(button->ValueStr);
 
 				for (CUnitType *type : unitmask) {
@@ -265,7 +273,8 @@ static void InitAiHelper(AiHelper &aiHelper)
 				}
 				break;
 			}
-			case ButtonCmd::Research : {
+			case ButtonCmd::Research:
+			{
 				int researchId = UpgradeIdByIdent(button->ValueStr);
 
 				if (button->Allowed == ButtonCheckSingleResearch) {
@@ -279,8 +288,7 @@ static void InitAiHelper(AiHelper &aiHelper)
 				}
 				break;
 			}
-			default:
-				break;
+			default: break;
 		}
 	}
 }
@@ -303,12 +311,8 @@ static int CclDefineAiHelper(lua_State *l)
 		}
 		const int subargs = lua_rawlen(l, j + 1);
 		const std::string_view value = LuaToString(l, j + 1, 1);
-		if (value == "build"
-			|| value == "train"
-			|| value == "upgrade"
-			|| value == "research"
-			|| value == "unit-limit"
-			|| value == "repair") {
+		if (value == "build" || value == "train" || value == "upgrade" || value == "research"
+		    || value == "unit-limit" || value == "repair") {
 			LuaDebugPrint(l,
 			              "DefineAiHelper: Relation is computed from buttons, "
 			              "you may remove safely the block beginning with '\"%s\"'\n",
@@ -729,7 +733,7 @@ static int CclAiWait(lua_State *l)
 		}
 
 		// Look if we have equivalent unit-types.
-		if (type->Slot < (int)AiHelpers.Equiv().size()) {
+		if (type->Slot < (int) AiHelpers.Equiv().size()) {
 			for (size_t j = 0; j < AiHelpers.Equiv()[type->Slot].size(); ++j) {
 				if (unit_types_count[AiHelpers.Equiv()[type->Slot][j]->Slot]) {
 					lua_pushboolean(l, 0);
@@ -750,7 +754,7 @@ static int CclAiWait(lua_State *l)
 	// Add equivalent units
 	//
 	unsigned int n = unit_types_count[type->Slot];
-	if (type->Slot < (int)AiHelpers.Equiv().size()) {
+	if (type->Slot < (int) AiHelpers.Equiv().size()) {
 		for (size_t j = 0; j < AiHelpers.Equiv()[type->Slot].size(); ++j) {
 			n += unit_types_count[AiHelpers.Equiv()[type->Slot][j]->Slot];
 		}
@@ -903,7 +907,6 @@ static int CclAiForce(lua_State *l)
 				aiforce.UnitTypes.push_back(newaiut);
 			}
 		}
-
 	}
 	AiAssignFreeUnitsToForce(force);
 	lua_pushboolean(l, 0);
@@ -1503,8 +1506,11 @@ static int CclAiDump(lua_State *l)
 
 			printf("------\n");
 			for (int i = 0; i < MaxCosts; ++i) {
-				printf("%s(%4d, %4d/%4d) ", DefaultResourceNames[i].c_str(),
-					   aip.Resources[i], aip.StoredResources[i], aip.MaxResources[i]);
+				printf("%s(%4d, %4d/%4d) ",
+				       DefaultResourceNames[i].c_str(),
+				       aip.Resources[i],
+				       aip.StoredResources[i],
+				       aip.MaxResources[i]);
 			}
 			printf("\n");
 			printf("Player %d:", aip.Index);
@@ -1514,17 +1520,20 @@ static int CclAiDump(lua_State *l)
 			//
 			// Requests
 			//
-			printf("UnitTypeRequests(%u):\n", static_cast<unsigned int>(aip.Ai->UnitTypeRequests.size()));
+			printf("UnitTypeRequests(%u):\n",
+			       static_cast<unsigned int>(aip.Ai->UnitTypeRequests.size()));
 			for (const auto &requestType : aip.Ai->UnitTypeRequests) {
 				printf("%s ", requestType.Type->Ident.c_str());
 			}
 			printf("\n");
-			printf("UpgradeToRequests(%u):\n", static_cast<unsigned int>(aip.Ai->UpgradeToRequests.size()));
+			printf("UpgradeToRequests(%u):\n",
+			       static_cast<unsigned int>(aip.Ai->UpgradeToRequests.size()));
 			for (const auto *unittype : aip.Ai->UpgradeToRequests) {
 				printf("%s ", unittype->Ident.c_str());
 			}
 			printf("\n");
-			printf("ResearchRequests(%u):\n", static_cast<unsigned int>(aip.Ai->ResearchRequests.size()));
+			printf("ResearchRequests(%u):\n",
+			       static_cast<unsigned int>(aip.Ai->ResearchRequests.size()));
 			for (const auto *upgrade : aip.Ai->ResearchRequests) {
 				printf("%s ", upgrade->Ident.c_str());
 			}
@@ -1539,9 +1548,10 @@ static int CclAiDump(lua_State *l)
 
 			// PrintForce
 			for (size_t i = 0; i < aip.Ai->Force.Size(); ++i) {
-				printf("Force(%u%s%s):\n", static_cast<unsigned int>(i),
-					   aip.Ai->Force[i].Completed ? ",complete" : ",recruit",
-					   aip.Ai->Force[i].Attacking ? ",attack" : "");
+				printf("Force(%u%s%s):\n",
+				       static_cast<unsigned int>(i),
+				       aip.Ai->Force[i].Completed ? ",complete" : ",recruit",
+				       aip.Ai->Force[i].Attacking ? ",attack" : "");
 				for (const AiUnitType &aut : aip.Ai->Force[i].UnitTypes) {
 					printf("%s(%d) ", aut.Type->Ident.c_str(), aut.Want);
 				}
@@ -1607,7 +1617,7 @@ static int CclDefineAiPlayer(lua_State *l)
 	const unsigned int playerIdx = LuaToNumber(l, 0 + 1);
 
 	Assert(playerIdx <= PlayerMax);
-	LuaDebugPrint(l, "%p %d\n", (void *)Players[playerIdx].Ai.get(), Players[playerIdx].AiEnabled);
+	LuaDebugPrint(l, "%p %d\n", (void *) Players[playerIdx].Ai.get(), Players[playerIdx].AiEnabled);
 	// FIXME: lose this:
 	// Assert(!Players[playerIdx].Ai && Players[playerIdx].AiEnabled);
 
@@ -1640,7 +1650,7 @@ static int CclDefineAiPlayer(lua_State *l)
 				LuaError(l, "incorrect argument");
 			}
 			const int subargs = lua_rawlen(l, j + 1);
-			[[maybe_unused]]const int cclforceIdx = LuaToNumber(l, j + 1, 1);
+			[[maybe_unused]] const int cclforceIdx = LuaToNumber(l, j + 1, 1);
 			const int forceIdx = ai.Force.FindFreeForce(AiForceRole::Default);
 
 			for (int k = 1; k < subargs; ++k) {
@@ -1839,6 +1849,118 @@ static int CclDefineAiPlayer(lua_State *l)
 	return 0;
 }
 
+namespace
+{
+constexpr auto AiProcessorReconnectDelay = std::chrono::milliseconds(1000);
+
+struct AiProcessorConnection final
+{
+	std::string host;
+	int port;
+	int stateDim;
+	int actionDim;
+	uint32_t sequence;
+	std::unique_ptr<CTCPSocket> socket;
+};
+
+static void AiProcessorClose(AiProcessorConnection &connection)
+{
+	if (connection.socket) {
+		if (connection.socket->IsValid()) {
+			connection.socket->Close();
+		}
+		connection.socket.reset();
+	}
+}
+
+static bool AiProcessorSendAll(CTCPSocket &socket, const char *data, size_t length)
+{
+	size_t offset = 0;
+	while (offset != length) {
+		const int sent = socket.Send(data + offset, static_cast<unsigned int>(length - offset));
+		if (sent <= 0) {
+			return false;
+		}
+		offset += sent;
+	}
+	return true;
+}
+
+static bool AiProcessorReceiveAll(CTCPSocket &socket, char *data, size_t length)
+{
+	size_t offset = 0;
+	while (offset != length) {
+		const int received = socket.Recv(data + offset, static_cast<int>(length - offset));
+		if (received <= 0) {
+			return false;
+		}
+		offset += received;
+	}
+	return true;
+}
+
+static bool AiProcessorConnect(AiProcessorConnection &connection)
+{
+	auto socket = std::make_unique<CTCPSocket>();
+	if (!socket->Open(CHost()) || !socket->Connect(CHost(connection.host, connection.port))) {
+		return false;
+	}
+
+	const char setup[] = {
+		'I',
+		static_cast<char>(connection.stateDim),
+		static_cast<char>(connection.actionDim),
+	};
+	if (!AiProcessorSendAll(*socket, setup, sizeof(setup))) {
+		socket->Close();
+		return false;
+	}
+
+	connection.socket = std::move(socket);
+	return true;
+}
+
+static AiProcessorConnection *AiProcessorHandle(lua_State *l)
+{
+	auto *connection = static_cast<AiProcessorConnection *>(lua_touserdata(l, 1));
+	if (connection == nullptr) {
+		LuaError(
+			l,
+			"first argument must be valid handle returned from a previous AiProcessorSetup call");
+	}
+	return connection;
+}
+
+static std::vector<char>
+AiProcessorFrame(lua_State *l, const AiProcessorConnection &connection, char prefix)
+{
+	LuaCheckArgs(l, 3);
+	if (!lua_istable(l, 3)) {
+		LuaError(l, "3rd argument to AiProcessorStep must be table");
+	}
+	if (lua_rawlen(l, 3) != static_cast<size_t>(connection.stateDim)) {
+		LuaError(l,
+		         "3rd argument to AiProcessorStep must contain %d state variables",
+		         connection.stateDim);
+	}
+
+	std::vector<char> frame(1 + sizeof(uint32_t) * (connection.stateDim + 2));
+	frame[0] = prefix;
+
+	const auto sequence = htonl(connection.sequence);
+	memcpy(frame.data() + 1, &sequence, sizeof(sequence));
+
+	const auto reward = htonl(static_cast<uint32_t>(static_cast<int32_t>(LuaToNumber(l, 2))));
+	memcpy(frame.data() + 1 + sizeof(uint32_t), &reward, sizeof(reward));
+
+	for (int i = 0; i < connection.stateDim; ++i) {
+		const auto state = htonl(static_cast<uint32_t>(LuaToUnsignedNumber(l, 3, i + 1)));
+		memcpy(frame.data() + 1 + sizeof(uint32_t) * (i + 2), &state, sizeof(state));
+	}
+	return frame;
+}
+} // namespace
+
 /**
  * AiProcessorSetup(host, port, number_of_state_variables, number_of_actions)
  *
@@ -1849,61 +1971,24 @@ static int CclAiProcessorSetup(lua_State *l)
 {
 	InitNetwork1();
 	LuaCheckArgs(l, 4);
-	std::string host = std::string{LuaToString(l, 1)};
-	int port = LuaToNumber(l, 2);
-	int stateDim = LuaToNumber(l, 3);
-	int actionDim = LuaToNumber(l, 4);
 
-	CHost h(host, port);
-	CTCPSocket *s = new CTCPSocket();
-	s->Open(CHost());
-	if (s->Connect(h)) {
-		char buf[3];
-		buf[0] = 'I';
-		buf[1] = (uint8_t)stateDim;
-		buf[2] = (uint8_t)actionDim;
-		s->Send(buf, 3);
-		lua_pushlightuserdata(l, s);
-		return 1;
+	const std::string host{LuaToString(l, 1)};
+	const int port = LuaToNumber(l, 2);
+	const int stateDim = LuaToNumber(l, 3);
+	const int actionDim = LuaToNumber(l, 4);
+	if (stateDim <= 0 || stateDim > UINT8_MAX || actionDim <= 0 || actionDim > UINT8_MAX) {
+		LuaError(l, "AI processor dimensions must be between 1 and %u", UINT8_MAX);
 	}
 
-	delete s;
-	lua_pushnil(l);
+	auto connection = std::make_unique<AiProcessorConnection>(
+		AiProcessorConnection{host, port, stateDim, actionDim, 0, nullptr});
+
+	while (!AiProcessorConnect(*connection)) {
+		std::this_thread::sleep_for(AiProcessorReconnectDelay);
+	}
+
+	lua_pushlightuserdata(l, connection.release());
 	return 1;
-}
-
-static CTCPSocket * AiProcessorSendState(lua_State *l, char prefix)
-{
-	LuaCheckArgs(l, 3);
-	CTCPSocket *s = (CTCPSocket *)lua_touserdata(l, 1);
-	if (s == nullptr) {
-		LuaError(l, "first argument must be valid handle returned from a previous AiProcessorSetup call");
-	}
-
-	uint32_t reward = htonl(LuaToNumber(l, 2));
-	if (!lua_istable(l, 3)) {
-		LuaError(l, "3rd argument to AiProcessorStep must be table");
-	}
-
-	char stepBuf[1029] = {'\0'}; // room for prefix + uint32 reward + 256 uint32 variables
-	stepBuf[0] = prefix;
-	int i = 1;
-
-	memcpy(stepBuf + i, &reward, sizeof(uint32_t));
-	i += sizeof(uint32_t);
-
-	for (lua_pushnil(l); lua_next(l, 3); lua_pop(l, 1)) {
-		// idx is ignored
-		uint32_t var = htonl(LuaToNumber(l, -1));
-		memcpy(stepBuf + i, &var, sizeof(uint32_t));
-		i += sizeof(uint32_t);
-		if (i + sizeof(uint32_t) > 1025) {
-			LuaError(l, "too many state variables");
-		}
-	}
-	s->Send(stepBuf, i);
-
-	return s;
 }
 
 /**
@@ -1911,27 +1996,52 @@ static CTCPSocket * AiProcessorSendState(lua_State *l, char prefix)
  */
 static int CclAiProcessorStep(lua_State *l)
 {
-	// A single step in a reinforcement learning network
+	AiProcessorConnection *connection = AiProcessorHandle(l);
+	const std::vector<char> frame = AiProcessorFrame(l, *connection, 'S');
 
-	// We receive the current env and current reward in the arguments
+	for (;;) {
+		if (!connection->socket && !AiProcessorConnect(*connection)) {
+			std::this_thread::sleep_for(AiProcessorReconnectDelay);
+			continue;
+		}
+		if (!AiProcessorSendAll(*connection->socket, frame.data(), frame.size())) {
+			AiProcessorClose(*connection);
+			std::this_thread::sleep_for(AiProcessorReconnectDelay);
+			continue;
+		}
 
-	// We need to return the next action.
+		uint8_t action;
+		for (;;) {
+			const int ready = connection->socket->HasDataToRead(
+				static_cast<int>(AiProcessorReconnectDelay.count()));
+			if (ready == 0) {
+				continue;
+			}
+			if (ready > 0
+			    && AiProcessorReceiveAll(
+					*connection->socket, reinterpret_cast<char *>(&action), sizeof(action))) {
+				++connection->sequence;
+				lua_pushnumber(l, action + 1); // +1 since lua tables are 1-indexed
+				return 1;
+			}
+			break;
+		}
 
-	// The next call to this function will be the updated state, reward for the
-	// last action
-
-	CTCPSocket *s = AiProcessorSendState(l, 'S');
-	int action = 0;
-	s->Recv(&action, 1);
-	lua_pushnumber(l, action + 1); // +1 since lua tables are 1-indexed
-	return 1;
+		AiProcessorClose(*connection);
+		std::this_thread::sleep_for(AiProcessorReconnectDelay);
+	}
 }
 
 static int CclAiProcessorEnd(lua_State *l)
 {
-	CTCPSocket *s = AiProcessorSendState(l, 'E');
-	s->Close();
-	delete s;
+	AiProcessorConnection *connection = AiProcessorHandle(l);
+	const std::vector<char> frame = AiProcessorFrame(l, *connection, 'E');
+
+	if (connection->socket) {
+		AiProcessorSendAll(*connection->socket, frame.data(), frame.size());
+		AiProcessorClose(*connection);
+	}
+	delete connection;
 	return 0;
 }
 

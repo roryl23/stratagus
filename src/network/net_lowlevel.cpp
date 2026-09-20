@@ -33,9 +33,9 @@
 //  Includes
 //----------------------------------------------------------------------------
 
-#include "stratagus.h"
-
 #include "net_lowlevel.h"
+
+#include "stratagus.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -47,11 +47,11 @@
 
 #ifdef USE_WIN32
 
-#include <windows.h>
-#include <winsock.h>
-#include <ws2tcpip.h>
-#include <iphlpapi.h>
-#pragma comment(lib, "Iphlpapi.lib")
+# include <iphlpapi.h>
+# include <windows.h>
+# include <winsock.h>
+# include <ws2tcpip.h>
+# pragma comment(lib, "Iphlpapi.lib")
 
 using setsockopttype = const char *;
 using recvfrombuftype = char *;
@@ -138,8 +138,7 @@ int NetInit()
 **  Hardware dependent network exit.
 */
 void NetExit()
-{
-}
+{}
 
 /**
 **  Close an UDP socket port.
@@ -213,7 +212,7 @@ std::string NetGetHostname()
 {
 	char hostname_buffer[256];
 #ifdef _WIN32
-	DWORD hostname_size = (DWORD)sizeof(hostname_buffer);
+	DWORD hostname_size = (DWORD) sizeof(hostname_buffer);
 	if (GetComputerNameA(hostname_buffer, &hostname_size)) {
 		return std::string(hostname_buffer);
 	}
@@ -232,9 +231,9 @@ std::string NetGetHostname()
 **  @return IP-addrs found.
 */
 #ifdef USE_WINSOCK // {
-#ifndef MIB_IF_TYPE_IEEE80211
-#define MIB_IF_TYPE_IEEE80211 71
-#endif
+# ifndef MIB_IF_TYPE_IEEE80211
+#  define MIB_IF_TYPE_IEEE80211 71
+# endif
 std::vector<unsigned long> NetSocketAddr()
 {
 	std::vector<unsigned long> ips;
@@ -242,20 +241,30 @@ std::vector<unsigned long> NetSocketAddr()
 	PIP_ADAPTER_ADDRESSES pFirstAddresses, pAddresses = nullptr;
 	ULONG outBufLen = 0;
 	GetAdaptersAddresses(AF_INET,
-						 GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
-						 nullptr, pAddresses, &outBufLen);
-	pAddresses = (PIP_ADAPTER_ADDRESSES)malloc(outBufLen);
+	                     GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+	                     nullptr,
+	                     pAddresses,
+	                     &outBufLen);
+	pAddresses = (PIP_ADAPTER_ADDRESSES) malloc(outBufLen);
 	if (GetAdaptersAddresses(AF_INET,
-							 GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
-							 nullptr, pAddresses, &outBufLen) == NO_ERROR) {
+	                         GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST
+	                             | GAA_FLAG_SKIP_DNS_SERVER,
+	                         nullptr,
+	                         pAddresses,
+	                         &outBufLen)
+	    == NO_ERROR) {
 		pFirstAddresses = pAddresses;
 		for (pAddresses; pAddresses; pAddresses = pAddresses->Next) {
 			if (pAddresses->Flags & IP_ADAPTER_RECEIVE_ONLY) continue;
 			if ((pAddresses->Flags & IP_ADAPTER_IPV4_ENABLED) == 0) continue;
-			if (pAddresses->IfType != IF_TYPE_ETHERNET_CSMACD && pAddresses->IfType != IF_TYPE_IEEE80211) continue;
+			if (pAddresses->IfType != IF_TYPE_ETHERNET_CSMACD
+			    && pAddresses->IfType != IF_TYPE_IEEE80211)
+				continue;
 			if (pAddresses->OperStatus != IfOperStatusUp) continue;
 			if (pAddresses->PhysicalAddressLength == 0) continue;
-			ips.push_back(((struct sockaddr_in*)pAddresses->FirstUnicastAddress->Address.lpSockaddr)->sin_addr.s_addr);
+			ips.push_back(
+				((struct sockaddr_in *) pAddresses->FirstUnicastAddress->Address.lpSockaddr)
+					->sin_addr.s_addr);
 		}
 	}
 	free(pFirstAddresses);
@@ -274,7 +283,7 @@ std::vector<unsigned long> NetSocketAddr()
 		if (ifa->ifa_flags & IFF_LOOPBACK) continue;
 		if (ifa->ifa_flags & IFF_POINTOPOINT) continue;
 		if ((ifa->ifa_flags & IFF_UP) == 0) continue;
-		ips.push_back(((struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr);
+		ips.push_back(((struct sockaddr_in *) ifa->ifa_addr)->sin_addr.s_addr);
 	}
 	if (ifAddrStruct != nullptr) {
 		freeifaddrs(ifAddrStruct);
@@ -313,7 +322,7 @@ Socket NetOpenUDP(unsigned long ip, int port)
 		sock_addr.sin_addr.s_addr = ip;
 		sock_addr.sin_port = htons(port);
 		// Bind the socket for listening
-		if (bind(sockfd, (struct sockaddr *)&sock_addr, sizeof(sock_addr)) < 0) {
+		if (bind(sockfd, (struct sockaddr *) &sock_addr, sizeof(sock_addr)) < 0) {
 			ErrorPrint("Couldn't bind to local port\n");
 			NetCloseUDP(sockfd);
 			return static_cast<Socket>(-1);
@@ -336,6 +345,11 @@ Socket NetOpenTCP(const char *addr, int port)
 	if (sockfd == INVALID_SOCKET) {
 		return static_cast<Socket>(-1);
 	}
+#if defined(SO_NOSIGPIPE)
+	const int noSigPipe = 1;
+	setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (setsockopttype) &noSigPipe, sizeof(noSigPipe));
+#endif
+
 	// bind local port
 	if (port) {
 		struct sockaddr_in sock_addr{};
@@ -349,13 +363,13 @@ Socket NetOpenTCP(const char *addr, int port)
 		sock_addr.sin_port = htons(port);
 
 		int opt = 1;
-		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (setsockopttype)&opt, sizeof(opt));
+		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (setsockopttype) &opt, sizeof(opt));
 #ifdef WIN32
 		opt = 0;
-		setsockopt(sockfd, SOL_SOCKET, SO_DONTLINGER, (setsockopttype)&opt, sizeof(opt));
+		setsockopt(sockfd, SOL_SOCKET, SO_DONTLINGER, (setsockopttype) &opt, sizeof(opt));
 #endif
 
-		if (bind(sockfd, (struct sockaddr *)&sock_addr, sizeof(sock_addr)) < 0) {
+		if (bind(sockfd, (struct sockaddr *) &sock_addr, sizeof(sock_addr)) < 0) {
 			ErrorPrint("Couldn't bind to local port\n");
 			NetCloseTCP(sockfd);
 			return static_cast<Socket>(-1);
@@ -377,7 +391,7 @@ int NetConnectTCP(Socket sockfd, unsigned long addr, int port)
 {
 #ifndef __BEOS__
 	int opt = 1;
-	setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (setsockopttype)&opt, sizeof(opt));
+	setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (setsockopttype) &opt, sizeof(opt));
 	// opt = 0;
 	// setsockopt(sockfd, SOL_SOCKET, SO_LINGER, (setsockopttype)&opt, sizeof(opt));
 #endif
@@ -391,7 +405,7 @@ int NetConnectTCP(Socket sockfd, unsigned long addr, int port)
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(port);
 
-	if (connect(sockfd, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+	if (connect(sockfd, (struct sockaddr *) &sa, sizeof(sa)) < 0) {
 		ErrorPrint("connect to %d.%d.%d.%d:%d failed\n", NIPQUAD(ntohl(addr)), port);
 		return -1;
 	}
@@ -466,8 +480,7 @@ int SocketSet::Select(int timeout)
 	} while (retval == -1 && errno == EINTR);
 #endif
 
-	for (size_t i = 0; i != this->Sockets.size(); ++i)
-	{
+	for (size_t i = 0; i != this->Sockets.size(); ++i) {
 		this->SocketReady[i] = FD_ISSET(this->Sockets[i], &mask);
 	}
 	return retval;
@@ -506,7 +519,8 @@ int NetRecvUDP(Socket sockfd, void *buf, int len, unsigned long *hostFrom, int *
 {
 	struct sockaddr_in sock_addr;
 	socklen_t n = sizeof(struct sockaddr_in);
-	const int l = recvfrom(sockfd, (recvfrombuftype)buf, len, 0, (struct sockaddr *)&sock_addr, &n);
+	const int l =
+		recvfrom(sockfd, (recvfrombuftype) buf, len, 0, (struct sockaddr *) &sock_addr, &n);
 
 	if (l < 0) {
 		ErrorPrint("Could not read from UDP socket\n");
@@ -533,7 +547,7 @@ int NetRecvUDP(Socket sockfd, void *buf, int len, unsigned long *hostFrom, int *
 */
 int NetRecvTCP(Socket sockfd, void *buf, int len)
 {
-	int ret = recv(sockfd, (recvbuftype)buf, len, 0);
+	int ret = recv(sockfd, (recvbuftype) buf, len, 0);
 	if (ret > 0) {
 		return ret;
 	}
@@ -561,8 +575,7 @@ int NetRecvTCP(Socket sockfd, void *buf, int len)
 **
 **  @return Number of bytes sent.
 */
-int NetSendUDP(Socket sockfd, unsigned long host, int port,
-			   const void *buf, int len)
+int NetSendUDP(Socket sockfd, unsigned long host, int port, const void *buf, int len)
 {
 	struct sockaddr_in sock_addr;
 
@@ -571,7 +584,7 @@ int NetSendUDP(Socket sockfd, unsigned long host, int port,
 	sock_addr.sin_port = htons(port);
 	sock_addr.sin_family = AF_INET;
 
-	return sendto(sockfd, (sendtobuftype)buf, len, 0, (struct sockaddr *)&sock_addr, n);
+	return sendto(sockfd, (sendtobuftype) buf, len, 0, (struct sockaddr *) &sock_addr, n);
 }
 
 /**
@@ -585,7 +598,11 @@ int NetSendUDP(Socket sockfd, unsigned long host, int port,
 */
 int NetSendTCP(Socket sockfd, const void *buf, int len)
 {
-	return send(sockfd, (sendbuftype)buf, len, 0);
+#if defined(MSG_NOSIGNAL)
+	return send(sockfd, (sendbuftype) buf, len, MSG_NOSIGNAL);
+#else
+	return send(sockfd, (sendbuftype) buf, len, 0);
+#endif
 }
 
 /**
@@ -614,7 +631,7 @@ Socket NetAcceptTCP(Socket sockfd, unsigned long *clientHost, int *clientPort)
 	struct sockaddr_in sa;
 	socklen_t len = sizeof(struct sockaddr_in);
 
-	Socket socket = accept(sockfd, (struct sockaddr *)&sa, &len);
+	Socket socket = accept(sockfd, (struct sockaddr *) &sa, &len);
 	*clientHost = sa.sin_addr.s_addr;
 	*clientPort = ntohs(sa.sin_port);
 	return socket;

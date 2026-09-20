@@ -33,10 +33,10 @@
 //  Includes
 //----------------------------------------------------------------------------
 
-#include "stratagus.h"
-
 #include "network/netsockets.h"
+
 #include "net_lowlevel.h"
+#include "stratagus.h"
 
 #include <cstdio>
 
@@ -71,10 +71,26 @@ public:
 	CUDPSocket_Impl() = default;
 	CUDPSocket_Impl(const CUDPSocket_Impl &) = delete;
 	CUDPSocket_Impl &operator=(const CUDPSocket_Impl &) = delete;
-	~CUDPSocket_Impl() { if (IsValid()) { Close(); } }
-	bool Open(const CHost &host) { socket = NetOpenUDP(host.getIp(), host.getPort()); return socket != INVALID_SOCKET; }
-	void Close() { NetCloseUDP(socket); socket = Socket(-1); }
-	void Send(const CHost &host, const void *buf, unsigned int len) { NetSendUDP(socket, host.getIp(), host.getPort(), buf, len); }
+	~CUDPSocket_Impl()
+	{
+		if (IsValid()) {
+			Close();
+		}
+	}
+	bool Open(const CHost &host)
+	{
+		socket = NetOpenUDP(host.getIp(), host.getPort());
+		return socket != INVALID_SOCKET;
+	}
+	void Close()
+	{
+		NetCloseUDP(socket);
+		socket = Socket(-1);
+	}
+	void Send(const CHost &host, const void *buf, unsigned int len)
+	{
+		NetSendUDP(socket, host.getIp(), host.getPort(), buf, len);
+	}
 	int Recv(void *buf, int len, CHost *hostFrom)
 	{
 		unsigned long ip = 0;
@@ -87,6 +103,7 @@ public:
 	int HasDataToRead(int timeout) { return NetSocketReady(socket, timeout); }
 	bool IsValid() const { return socket != Socket(-1); }
 	std::vector<unsigned long> GetSocketAddresses() { return NetSocketAddr(); }
+
 private:
 	Socket socket = -1;
 };
@@ -130,7 +147,8 @@ int CUDPSocket::Recv(void *buf, int len, CHost *hostFrom)
 	} else {
 		++m_statistic.receivedPacketsCount;
 		m_statistic.receivedBytesCount += res;
-		m_statistic.biggestReceivedPacketSize = std::max(m_statistic.biggestReceivedPacketSize, (unsigned int)res);
+		m_statistic.biggestReceivedPacketSize =
+			std::max(m_statistic.biggestReceivedPacketSize, (unsigned int) res);
 	}
 #endif
 	return res;
@@ -151,7 +169,8 @@ bool CUDPSocket::IsValid() const
 	return m_impl->IsValid();
 }
 
-std::vector<unsigned long> CUDPSocket::GetSocketAddresses() {
+std::vector<unsigned long> CUDPSocket::GetSocketAddresses()
+{
 	return m_impl->GetSocketAddresses();
 }
 
@@ -165,19 +184,32 @@ public:
 	CTCPSocket_Impl() = default;
 	CTCPSocket_Impl(const CTCPSocket_Impl &) = delete;
 	CTCPSocket_Impl &operator=(const CTCPSocket_Impl &) = delete;
-	~CTCPSocket_Impl() { if (IsValid()) { Close(); } }
+	~CTCPSocket_Impl()
+	{
+		if (IsValid()) {
+			Close();
+		}
+	}
 	bool Open(const CHost &host);
-	void Close() { NetCloseTCP(socket); socket = Socket(-1); }
-	bool Connect(const CHost &host) { return NetConnectTCP(socket, host.getIp(), host.getPort()) != -1; }
+	void Close()
+	{
+		NetCloseTCP(socket);
+		socket = Socket(-1);
+	}
+	bool Connect(const CHost &host)
+	{
+		return NetConnectTCP(socket, host.getIp(), host.getPort()) != -1;
+	}
 	int Send(const void *buf, unsigned int len) { return NetSendTCP(socket, buf, len); }
 	int Recv(void *buf, int len)
 	{
 		int res = NetRecvTCP(socket, buf, len);
 		return res;
 	}
-	void SetNonBlocking() { NetSetNonBlocking(socket); }
+	bool SetNonBlocking() { return NetSetNonBlocking(socket) != -1; }
 	int HasDataToRead(int timeout) { return NetSocketReady(socket, timeout); }
 	bool IsValid() const { return socket != Socket(-1); }
+
 private:
 	Socket socket = -1;
 };
@@ -209,7 +241,6 @@ void CTCPSocket::Close()
 	m_impl->Close();
 }
 
-
 bool CTCPSocket::Connect(const CHost &host)
 {
 	return m_impl->Connect(host);
@@ -226,9 +257,9 @@ int CTCPSocket::Recv(void *buf, int len)
 	return res;
 }
 
-void CTCPSocket::SetNonBlocking()
+bool CTCPSocket::SetNonBlocking()
 {
-	m_impl->SetNonBlocking();
+	return m_impl->SetNonBlocking();
 }
 
 int CTCPSocket::HasDataToRead(int timeout)

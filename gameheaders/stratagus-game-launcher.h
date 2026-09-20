@@ -128,75 +128,92 @@ stratagus-game-launcher.h - Stratagus Game Launcher
  * Path to stratagus executable binary
  **/
 
+/**
+ * \def GAME_LAUNCHER_PRE_ARGUMENT_HOOK
+ * OPTIONAL: Function-like macro invoked before the launcher processes arguments.
+ * It may consume game-specific launcher arguments by updating argc and argv.
+ **/
+#ifndef GAME_LAUNCHER_PRE_ARGUMENT_HOOK
+# define GAME_LAUNCHER_PRE_ARGUMENT_HOOK(argc, argv)
+#endif
+
+/**
+ * \def GAME_LAUNCHER_EXTRA_HELP
+ * OPTIONAL: String literal appended to the launcher help text.
+ **/
+#ifndef GAME_LAUNCHER_EXTRA_HELP
+# define GAME_LAUNCHER_EXTRA_HELP ""
+#endif
+
 #ifndef STRATAGUS_GAME_LAUNCHER_H
-#define STRATAGUS_GAME_LAUNCHER_H
+# define STRATAGUS_GAME_LAUNCHER_H
 
 /* Fake definitions for Doxygen */
-#include <sys/types.h>
-#ifdef DOXYGEN
-# define GAME_NAME
-# define GAME_CD
-# define GAME
-# define DATA_PATH
-# define SCRIPTS_PATH
-# define STRATAGUS_BIN
-#endif
+# include <sys/types.h>
+# ifdef DOXYGEN
+#  define GAME_NAME
+#  define GAME_CD
+#  define GAME
+#  define DATA_PATH
+#  define SCRIPTS_PATH
+#  define STRATAGUS_BIN
+# endif
 
-#if !defined(GAME_NAME) || !defined(GAME_CD) || !defined(GAME) || !defined(EXTRACTOR_TOOL)
-# error You need to define all Game macros, see stratagus-game-launcher.h
-#endif
+# if !defined(GAME_NAME) || !defined(GAME_CD) || !defined(GAME) || !defined(EXTRACTOR_TOOL)
+#  error You need to define all Game macros, see stratagus-game-launcher.h
+# endif
 
-#ifndef GAME_SHOULD_EXTRACT_AGAIN
-# define GAME_SHOULD_EXTRACT_AGAIN false
-#endif
+# ifndef GAME_SHOULD_EXTRACT_AGAIN
+#  define GAME_SHOULD_EXTRACT_AGAIN false
+# endif
 
 /**
  * \def TITLE_PNG
  * OPTIONAL: Path to title screen (for testing if data was extracted)
  **/
-#ifndef TITLE_PNG
-# ifdef WIN32
-#  define TITLE_PNG "%s\\graphics\\ui\\title.png"
-# else
-#  define TITLE_PNG "%s/graphics/ui/title.png"
+# ifndef TITLE_PNG
+#  ifdef WIN32
+#   define TITLE_PNG "%s\\graphics\\ui\\title.png"
+#  else
+#   define TITLE_PNG "%s/graphics/ui/title.png"
+#  endif
 # endif
-#endif
 
-#ifndef WIN32
-# if !defined(DATA_PATH) || !defined(SCRIPTS_PATH) || !defined(STRATAGUS_BIN)
-#  error You need to define paths, see stratagus-game-launcher.h
+# ifndef WIN32
+#  if !defined(DATA_PATH) || !defined(SCRIPTS_PATH) || !defined(STRATAGUS_BIN)
+#   error You need to define paths, see stratagus-game-launcher.h
+#  endif
+#  pragma GCC diagnostic ignored "-Wwrite-strings"
 # endif
-# pragma GCC diagnostic ignored "-Wwrite-strings"
-#endif
 
-#ifdef _MSC_VER
-# pragma comment(linker, "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
-#endif
+# ifdef _MSC_VER
+#  pragma comment(linker, "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
+# endif
 
-#ifdef _WIN64
-# define REGKEY \
-	 "Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Stratagus (64 bit)"
-#elif defined(WIN32)
-# define REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Stratagus"
-#endif
+# ifdef _WIN64
+#  define REGKEY \
+	  "Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Stratagus (64 bit)"
+# elif defined(WIN32)
+#  define REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Stratagus"
+# endif
 
-#define TITLE GAME_NAME
-#define EXTRACTOR_NOT_FOUND GAME_NAME " could not find its extraction tool.\n" EXTRACTOR_TOOL "!\n"
-#define STRATAGUS_NOT_FOUND \
-	"Stratagus is not installed.\nYou need Stratagus to run " GAME_NAME "!\n"
-#define DATA_NOT_EXTRACTED \
-	GAME_NAME " data was not extracted, is corrupted, or outdated.\nYou need to extract it from " \
-	          "original " GAME_CD "."
+# define TITLE GAME_NAME
+# define EXTRACTOR_NOT_FOUND GAME_NAME " could not find its extraction tool.\n" EXTRACTOR_TOOL "!\n"
+# define STRATAGUS_NOT_FOUND \
+	 "Stratagus is not installed.\nYou need Stratagus to run " GAME_NAME "!\n"
+# define DATA_NOT_EXTRACTED \
+	 GAME_NAME " data was not extracted, is corrupted, or outdated.\nYou need to extract it from " \
+			   "original " GAME_CD "."
 
-#include "stratagus-gameutils.h"
+# include "stratagus-gameutils.h"
 
-#include <algorithm>
+# include <algorithm>
 
 const char *argv0;
 
 static void SetUserDataPath(char *data_path)
 {
-#if defined(WIN32)
+# if defined(WIN32)
 	if (fs::exists(fs::path(data_path) / "portable-install")) {
 		return;
 	}
@@ -205,7 +222,7 @@ static void SetUserDataPath(char *data_path)
 		strcpy(data_path, getenv("APPDATA"));
 	}
 	strcat(data_path, "\\Stratagus\\");
-#else
+# else
 	char *appimage_ptr = getenv("APPIMAGE");
 	std::string appimage;
 	if (appimage_ptr != nullptr) {
@@ -226,14 +243,14 @@ static void SetUserDataPath(char *data_path)
 		dataDir = getenv("HOME");
 		if (dataDir) {
 			strcpy(data_path, dataDir);
-# ifdef USE_MAC
+#  ifdef USE_MAC
 			strcat(data_path, "/Library/Application Support/Stratagus/");
-# else
+#  else
 			strcat(data_path, "/.local/share/stratagus/");
-# endif
+#  endif
 		}
 	}
-#endif
+# endif
 	strcat(data_path, "data." GAME_NAME);
 }
 
@@ -244,21 +261,21 @@ static int check_version(char *tool_path, const fs::path &data_path)
 		fgets(dataversion, 20, f);
 		fclose(f);
 	} else {
-#ifdef CHECK_EXTRACTED_VERSION
+# ifdef CHECK_EXTRACTED_VERSION
 		return 0; // No file means we have a problem
-#else
+# else
 		return 1; // No file means we don't care
-#endif
+# endif
 	}
 	char toolversion[20] = {'\0'};
 	char buf[4096] = {'\0'};
 	sprintf(buf, "%s -V", tool_path); // tool_path is already quoted
-#ifndef WIN32
+# ifndef WIN32
 	if (FILE *pipe = popen(buf, "r")) {
 		fgets(toolversion, 20, pipe);
 		pclose(pipe);
 	}
-#else
+# else
 	HANDLE g_hChildStd_OUT_Rd = nullptr;
 	HANDLE g_hChildStd_OUT_Wr = nullptr;
 	DWORD nbByteRead;
@@ -282,7 +299,7 @@ static int check_version(char *tool_path, const fs::path &data_path)
 	CloseHandle(piProcInfo.hProcess);
 	CloseHandle(piProcInfo.hThread);
 	ReadFile(g_hChildStd_OUT_Rd, toolversion, 20, &nbByteRead, nullptr);
-#endif
+# endif
 	// strip whitespace
 	for (size_t i = 0, j = 0; toolversion[j] = toolversion[i]; j += !isspace(toolversion[i++]))
 		;
@@ -302,7 +319,7 @@ static void ExtractData(char *extractor_tool,
                         char *datafileCstr = nullptr)
 {
 	bool canJustReextract = false;
-#ifdef EXTRACTION_FILES
+# ifdef EXTRACTION_FILES
 	if (force == 0) {
 		const char *extraction_files[] = {EXTRACTION_FILES};
 
@@ -311,7 +328,7 @@ static void ExtractData(char *extractor_tool,
 		                std::end(extraction_files),
 		                [&](const auto *file) { return fs::exists(fs::path(destination) / file); });
 	}
-#endif
+# endif
 	if (canJustReextract) {
 		tinyfd_messageBox("",
 		                  GAME
@@ -327,16 +344,16 @@ static void ExtractData(char *extractor_tool,
 	} else if (force == 2) {
 		// pass
 	}
-#ifdef USE_MAC
+# ifdef USE_MAC
 	int patterncount = 0;
 	char *filepatterns[] = {nullptr};
 	// file types as names not working at least on macOS sierra
-#else
+# else
 	const char *filepatterns[] = {GAME_CD_FILE_PATTERNS, nullptr};
 	int patterncount = 0;
 	while (filepatterns[patterncount++] != nullptr)
 		;
-#endif
+# endif
 	fs::path srcfolder;
 	if (!canJustReextract || datafileCstr != nullptr) {
 		if (datafileCstr == nullptr) {
@@ -349,31 +366,31 @@ static void ExtractData(char *extractor_tool,
 		std::string datafile = datafileCstr;
 		if (datafile.compare(datafile.length() - 4, 4, ".exe") == 0) {
 			// test if this is an innoextract installer and if so, extract it to a tempdir and pass that
-#ifdef WIN32
+# ifdef WIN32
 			char moduleFileName[BUFF_SIZE];
 			memset(moduleFileName, 0, sizeof(moduleFileName));
 			GetModuleFileNameA(nullptr, moduleFileName, sizeof(moduleFileName) - 1);
 			fs::path innoextractPath = fs::path(moduleFileName).parent_path() / "innoextract.exe";
 			std::wstring file = innoextractPath.wstring();
 			std::vector<std::wstring> argv = {L"-i", fs::path(datafile).wstring()};
-#else
+# else
 			const char *file = "innoextract";
 			char *argv[] = {"-i", (char *) datafile.c_str(), nullptr, nullptr, nullptr};
-#endif
+# endif
 			if (runCommand(file, argv) == 0) {
 				// innoextract exists and this exe file is an innosetup file
 				const fs::path tmpp = fs::temp_directory_path() / GAME;
 				fs::create_directories(tmpp);
 				const fs::path curdir = fs::current_path();
 				fs::current_path(tmpp);
-#ifdef WIN32
+# ifdef WIN32
 				argv[0] = L"-m";
-#else
+# else
 				argv[0] = "-m";
 				argv[1] = "-d";
 				argv[2] = (char *) tmpp.string().c_str();
 				argv[3] = (char *) datafile.c_str();
-#endif
+# endif
 				if (runCommand(file, argv) != 0) {
 					error("Problem with installer",
 					      "You selected an innosetup installer, and we could not extract it. "
@@ -408,7 +425,7 @@ static void ExtractData(char *extractor_tool,
 		srcfolder = fs::path(destination);
 	}
 
-#ifdef WIN32
+# ifdef WIN32
 	fs::path sourcepath;
 	if (scripts_path[0] == '"') {
 		// if scripts_path is quoted, remove the quotes
@@ -416,7 +433,7 @@ static void ExtractData(char *extractor_tool,
 	} else {
 		sourcepath = scripts_path;
 	}
-#else
+# else
 	fs::path sourcepath;
 	if (scripts_path[0] != '/') {
 		fs::path normalized_path(argv0);
@@ -432,7 +449,7 @@ static void ExtractData(char *extractor_tool,
 	} else {
 		sourcepath = scripts_path;
 	}
-#endif
+# endif
 
 	fs::create_directories(fs::path(destination));
 
@@ -441,12 +458,12 @@ static void ExtractData(char *extractor_tool,
 		sourcepath = fs::path(SRC_PATH()).parent_path();
 	}
 
-#ifndef WIN32
+# ifndef WIN32
 	if (!fs::exists(sourcepath)) {
 		// deployment time path might be same as extractor
 		sourcepath = fs::path(extractor_tool).parent_path();
 	}
-#endif
+# endif
 
 	if (!fs::exists(sourcepath)) {
 		// scripts not found, abort!
@@ -488,7 +505,7 @@ static void ExtractData(char *extractor_tool,
 	int exitcode = 0;
 
 	char cmdbuf[4096] = {'\0'};
-#ifdef WIN32
+# ifdef WIN32
 	std::vector<std::wstring> args;
 	std::wstring file = fs::path(extractor_tool).wstring();
 
@@ -507,13 +524,13 @@ static void ExtractData(char *extractor_tool,
 	args.push_back(fs::path(destination).wstring());
 	std::wstring combinedCommandline;
 	exitcode = runCommand(file, args, true, &combinedCommandline);
-#else
+# else
 
-# ifdef USE_MAC
+#  ifdef USE_MAC
 	strcat(cmdbuf,
 	       "osascript -e \"tell application \\\"Terminal\\\"\n"
 	       "    set w to do script \\\"");
-# else
+#  else
 	bool hasXterm = false;
 	if (!isatty(1)) {
 		hasXterm = detectPresence("xterm");
@@ -537,13 +554,13 @@ static void ExtractData(char *extractor_tool,
 			"info",
 			1);
 	}
-# endif
+#  endif
 
-# ifdef USE_MAC
+#  ifdef USE_MAC
 	strcat(cmdbuf, fs::absolute(fs::path(extractor_tool)).c_str());
-# else
+#  else
 	strcat(cmdbuf, extractor_tool);
-# endif
+#  endif
 	for (int i = 0;; i++) {
 		const char *earg = extractor_args[i];
 		if (earg == nullptr) {
@@ -559,7 +576,7 @@ static void ExtractData(char *extractor_tool,
 	strcat(cmdbuf, destination);
 	strcat(cmdbuf, QUOTE);
 
-# ifdef USE_MAC
+#  ifdef USE_MAC
 	strcat(cmdbuf,
 	       "; exit\\\"\n"
 	       "    repeat\n"
@@ -567,20 +584,20 @@ static void ExtractData(char *extractor_tool,
 	       "        if not busy of w then exit repeat\n"
 	       "    end repeat\n"
 	       "end tell\"");
-# else
+#  else
 	if (!isatty(1)) {
 		if (hasXterm) {
 			strcat(cmdbuf, "; echo 'Press RETURN to continue...'; read\"");
 		}
 	}
-# endif
+#  endif
 
 	printf("Running extractor as %s\n", cmdbuf);
 	exitcode = system(cmdbuf);
-#endif
+# endif
 
 	if (exitcode != 0) {
-#ifdef WIN32
+# ifdef WIN32
 		WideCharToMultiByte(CP_ACP,
 		                    0,
 		                    combinedCommandline.c_str(),
@@ -589,7 +606,7 @@ static void ExtractData(char *extractor_tool,
 		                    sizeof(cmdbuf) - 1,
 		                    nullptr,
 		                    nullptr);
-#endif
+# endif
 		char *extractortext = (char *) calloc(sizeof(char), strlen(cmdbuf) + 1024);
 		for (int i = 0; i < strlen(cmdbuf); i++) {
 			if (cmdbuf[i] == '"' || cmdbuf[i] == '\'') {
@@ -613,9 +630,10 @@ int main(int argc, char *argv[])
 	char scripts_path[BUFF_SIZE];
 	char stratagus_bin[BUFF_SIZE];
 	char title_path[BUFF_SIZE];
+	GAME_LAUNCHER_PRE_ARGUMENT_HOOK(argc, argv);
 
 	// set global variable to this executable
-#ifndef WIN32
+# ifndef WIN32
 	// we accept a special argument to get our own location, if we see that,
 	// shift the other arguments down. This is not documented, and right now
 	// mainly used for AppImages
@@ -629,7 +647,7 @@ int main(int argc, char *argv[])
 	} else {
 		argv0 = realpath(argv[0], nullptr);
 	}
-#endif
+# endif
 	argv0 = argv[0];
 
 	// Try the extractor from the same dir as we are
@@ -638,13 +656,13 @@ int main(int argc, char *argv[])
 		strcpy(extractor_path, argv0);
 		parentdir(extractor_path);
 		strcat(extractor_path, SLASH EXTRACTOR_TOOL);
-#ifdef WIN32
+# ifdef WIN32
 		if (!strstr(extractor_path, ".exe")) {
 			strcat(extractor_path, ".exe");
 		}
-#endif
+# endif
 		if (fs::exists(extractor_path)) {
-#ifndef WIN32
+# ifndef WIN32
 			// Once we have the path, we quote it by moving the memory one byte to the
 			// right, and surrounding it with the quote character and finishing null
 			// bytes. Then we add the arguments.
@@ -653,7 +671,7 @@ int main(int argc, char *argv[])
 			extractor_path[0] = QUOTE[0];
 			extractor_path[strlen(extractor_path) + 1] = '\0';
 			extractor_path[strlen(extractor_path)] = QUOTE[0];
-#endif
+# endif
 		} else {
 			extractor_path[0] = '\0';
 		}
@@ -668,7 +686,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-#ifdef WIN32
+# ifdef WIN32
 	char executable_path[BUFF_SIZE]{};
 	GetModuleFileNameA(nullptr, executable_path, sizeof(executable_path) - 1);
 
@@ -728,15 +746,15 @@ int main(int argc, char *argv[])
 		}
 	}
 
-# ifdef DATA_PATH
+#  ifdef DATA_PATH
 	// usually this isn't defined for windows builds. if it is, use it
 	strcpy(data_path, DATA_PATH);
-# endif
-#else
+#  endif
+# else
 	strcpy(data_path, DATA_PATH);
 	strcpy(scripts_path, SCRIPTS_PATH);
 	strcpy(stratagus_bin, STRATAGUS_BIN);
-#endif
+# endif
 
 	const char *const extractor_args[] = EXTRACTOR_ARGS;
 
@@ -764,13 +782,13 @@ int main(int argc, char *argv[])
 			       "process on\n"
 			       "\t--extract - force extraction even if data is already extracted\n"
 			       "\t--extract-no-gui - force extraction even if data is already extracted, using "
-			       "the console only for prompts\n\n",
+			       "the console only for prompts\n" GAME_LAUNCHER_EXTRA_HELP "\n",
 			       argv[0]);
 		}
 	}
 
 	if (!fs::exists(stratagus_bin)) {
-#ifdef WIN32
+# ifdef WIN32
 		_fullpath(stratagus_bin, argv0, BUFF_SIZE);
 		PathRemoveFileSpecA(stratagus_bin);
 		strcat(stratagus_bin, "\\stratagus.exe");
@@ -779,7 +797,7 @@ int main(int argc, char *argv[])
 			      (std::string(STRATAGUS_NOT_FOUND) + " (expected in " + stratagus_bin + ")")
 			          .c_str());
 		}
-#else
+# else
 		if (!detectPresence(stratagus_bin)) {
 			realpath(argv0, stratagus_bin);
 			parentdir(stratagus_bin);
@@ -794,7 +812,7 @@ int main(int argc, char *argv[])
 				          .c_str());
 			}
 		}
-#endif
+# endif
 	}
 
 	sprintf(title_path, TITLE_PNG, data_path);
@@ -815,7 +833,7 @@ int main(int argc, char *argv[])
 		ExtractData(extractor_path, extractor_args, data_path, scripts_path);
 	}
 
-#ifdef WIN32
+# ifdef WIN32
 	int data_path_len = strlen(data_path);
 	fs::current_path(data_path);
 
@@ -825,16 +843,16 @@ int main(int argc, char *argv[])
 	data_path[0] = '"';
 	data_path[data_path_len + 1] = '"';
 	data_path[data_path_len + 2] = '\0';
-#endif
+# endif
 
-#ifdef _MSC_VER
+# ifdef _MSC_VER
 	char **stratagus_argv;
 	stratagus_argv = (char **) malloc((argc + 3) * sizeof(*stratagus_argv));
-#else
+# else
 	char *stratagus_argv[argc + 3];
-#endif
+# endif
 
-#ifdef WIN32
+# ifdef WIN32
 	char stratagus_argv0_esc[BUFF_SIZE];
 	memset(stratagus_argv0_esc, 0, sizeof(stratagus_argv0_esc));
 	strcpy(stratagus_argv0_esc + 1, argv0);
@@ -842,9 +860,9 @@ int main(int argc, char *argv[])
 	stratagus_argv0_esc[strlen(argv0) + 1] = '"';
 	stratagus_argv0_esc[strlen(argv0) + 2] = 0;
 	stratagus_argv[0] = stratagus_argv0_esc;
-#else
+# else
 	stratagus_argv[0] = strdup(argv0);
-#endif
+# endif
 
 	stratagus_argv[1] = (char *) "-d";
 	stratagus_argv[2] = data_path;
@@ -855,16 +873,19 @@ int main(int argc, char *argv[])
 	stratagus_argv[argc + 2] = nullptr;
 
 	// Needed to reduce CPU load while idle threads are waiting for not finished yet ones
-	extern char **environ;
-	int i = 0;
-	while (environ[i]) {
-		i++;
+# ifdef WIN32
+	if (_putenv_s("OMP_WAIT_POLICY", "passive") != 0) {
+		error(TITLE, "Unable to set OMP_WAIT_POLICY");
 	}
-	environ[i] = (char *) "OMP_WAIT_POLICY=passive";
-	environ[i + 1] = nullptr;
-#ifdef WIN32
+	extern char **environ;
+# else
+	if (setenv("OMP_WAIT_POLICY", "passive", 1) != 0) {
+		error(TITLE, "Unable to set OMP_WAIT_POLICY");
+	}
+# endif
+# ifdef WIN32
 	int ret = _spawnvpe(_P_WAIT, stratagus_bin, stratagus_argv, environ);
-#else
+# else
 	int ret = 0;
 	int childpid = fork();
 	if (childpid == 0) {
@@ -881,7 +902,7 @@ int main(int argc, char *argv[])
 	} else {
 		ret = ENOENT;
 	}
-#endif
+# endif
 	if (ret == ENOENT) {
 		std::string msg = "Execution failed for: ";
 		msg += stratagus_bin;
@@ -898,28 +919,28 @@ int main(int argc, char *argv[])
 			8096 * 2,
 			"Stratagus failed to load game data.\n"
 			"If you just launched the game without any arguments, this may indicate a bug with the "
-		    "extraction process.\n"
+			"extraction process.\n"
 			"Please report this on https://github.com/Wargus/stratagus/issues/new,\n"
 			"and please give details, including: operating system, installation path, username, "
-		    "kind of source CD.\n"
+			"kind of source CD.\n"
 			"If you got an error message about the extraction command failing, please try to run "
-		    "it in a console\n"
+			"it in a console\n"
 			"and post the output to the issue. A common problem is symbols in the path for the "
-		    "installation, the game data path,\n"
+			"installation, the game data path,\n"
 			"or the username (like an ampersand or exclamation mark). Try changing these.\n"
-#ifndef WIN32
-# ifdef WIN32
+# ifndef WIN32
+#  ifdef WIN32
 			"Also check if the file '%s' exists and check for errors or post it to the issue.\n"
-# endif
+#  endif
 			"Try also to remove the folder %s and try the extraction again.\n",
-# ifdef WIN32
+#  ifdef WIN32
 			GetExtractionLogPath(GAME_NAME, data_path),
-# endif
+#  endif
 			data_path);
-#else
+# else
 			"If not already done, please try using the portable version and check for stdout.txt, "
-		    "stderr.txt, and an extraction.log in the folder.\n");
-#endif
+			"stderr.txt, and an extraction.log in the folder.\n");
+# endif
 		error(TITLE, message);
 		fs::remove(title_path);
 		fs::remove(data_path);

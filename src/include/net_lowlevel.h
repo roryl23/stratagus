@@ -35,6 +35,7 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
+#include <string>
 #include <vector>
 
 // Include system network headers
@@ -46,16 +47,16 @@
 # undef DELETE
 
 #else // UNIX
+# include <ifaddrs.h>
+# include <netdb.h>
+# include <netinet/in.h>
+# include <sys/ioctl.h>
+# include <sys/socket.h>
 # include <sys/time.h>
 # include <unistd.h>
-# include <netinet/in.h>
-# include <netdb.h>
-# include <sys/socket.h>
-# include <sys/ioctl.h>
-# include <ifaddrs.h>
 # ifndef __BEOS__
-#  include <net/if.h>
 #  include <arpa/inet.h>
+#  include <net/if.h>
 # endif
 # define INVALID_SOCKET -1
 
@@ -70,8 +71,8 @@
 ----------------------------------------------------------------------------*/
 
 #define NIPQUAD(ad) \
-	(int)(((ad) >> 24) & 0xff), (int)(((ad) >> 16) & 0xff), \
-	(int)(((ad) >> 8) & 0xff), (int)((ad) & 0xff)
+	(int) (((ad) >> 24) & 0xff), (int) (((ad) >> 16) & 0xff), (int) (((ad) >> 8) & 0xff), \
+		(int) ((ad) & 0xff)
 
 #ifdef USE_WINSOCK
 using Socket = SOCKET;
@@ -127,7 +128,6 @@ extern int NetSendUDP(Socket sockfd, unsigned long host, int port, const void *b
 /// Receive from a UDP socket.
 extern int NetRecvUDP(Socket sockfd, void *buf, int len, unsigned long *hostFrom, int *portFrom);
 
-
 /// Open a TCP Socket port.
 extern Socket NetOpenTCP(const char *addr, int port);
 /// Close a TCP socket port.
@@ -142,7 +142,6 @@ extern int NetRecvTCP(Socket sockfd, void *buf, int len);
 extern int NetListenTCP(Socket sockfd);
 /// Accept a connection on a TCP socket
 extern Socket NetAcceptTCP(Socket sockfd, unsigned long *clientHost, int *clientPort);
-
 
 /// Set socket to non-blocking
 extern int NetSetNonBlocking(Socket sockfd);
