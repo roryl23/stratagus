@@ -35,7 +35,9 @@
 ----------------------------------------------------------------------------*/
 #include "ai.h"
 #include "ai_local.h"
+#include "commands.h"
 #include "interface.h"
+#include "map.h"
 #include "net_lowlevel.h"
 #include "network.h"
 #include "pathfinder.h"
@@ -1849,6 +1851,146 @@ static int CclDefineAiPlayer(lua_State *l)
 	return 0;
 }
 
+static CUnit *AiDirectCommandUnit(const int slot)
+{
+	if (slot < 0 || static_cast<unsigned int>(slot) >= UnitManager->GetUsedSlotCount()) {
+		return nullptr;
+	}
+
+	CUnit &unit = UnitManager->GetSlotUnit(slot);
+	if (unit.Released || unit.Type == nullptr || unit.Player == nullptr || !unit.IsAliveOnMap()) {
+		return nullptr;
+	}
+	return &unit;
+}
+
+static CUnitType *AiDirectCommandUnitType(const std::string_view ident)
+{
+	for (CUnitType *type : getUnitTypes()) {
+		if (type != nullptr && type->Ident == ident) {
+			return type;
+		}
+	}
+	return nullptr;
+}
+
+static int AiDirectCommandResult(lua_State *l, const bool accepted)
+{
+	lua_pushboolean(l, accepted);
+	return 1;
+}
+
+/**
+ * AiDirectCommand(player, actor-slot, verb [, argument])
+ *
+ * Issue one validated primitive command without involving strategic AI state.
+ */
+static int CclAiDirectCommand(lua_State *l)
+{
+	const int args = lua_gettop(l);
+	if (args < 3 || args > 4) {
+		LuaError(l, "AiDirectCommand expects 3 or 4 arguments");
+	}
+
+	const int playerIndex = LuaToNumber(l, 1);
+	const int actorSlot = LuaToNumber(l, 2);
+	const std::string_view verb = LuaToString(l, 3);
+	const bool noArgument = verb == "stop" || verb == "stand-ground" || verb == "explore";
+	const bool targetArgument = verb == "attack" || verb == "resource" || verb == "repair";
+	const bool positionArgument = verb == "resource-location" || verb == "move";
+	const bool typeArgument = verb == "build" || verb == "train" || verb == "research";
+
+	if (!noArgument && !targetArgument && !positionArgument && !typeArgument) {
+		LuaError(l, "unsupported AiDirectCommand verb: %s", verb.data());
+	}
+	if (args != (noArgument ? 3 : 4)) {
+		LuaError(l, "incorrect argument count for AiDirectCommand verb: %s", verb.data());
+	}
+	if (playerIndex < 0 || playerIndex >= PlayerMax) {
+		return AiDirectCommandResult(l, false);
+	}
+
+	CUnit *actor = AiDirectCommandUnit(actorSlot);
+	if (actor == nullptr || actor->Player != &Players[playerIndex]) {
+		return AiDirectCommandResult(l, false);
+	}
+
+	if (verb == "stop") {
+		CommandStopUnit(*actor);
+		return AiDirectCommandResult(l, true);
+	}
+	if (verb == "stand-ground") {
+		CommandStandGround(*actor, EFlushMode::On);
+		return AiDirectCommandResult(l, true);
+	}
+	if (verb == "explore") {
+		CommandExplore(*actor, EFlushMode::On);
+		return AiDirectCommandResult(l, true);
+	}
+	if (targetArgument) {
+		CUnit *target = AiDirectCommandUnit(LuaToNumber(l, 4));
+		if (target == nullptr) {
+			return AiDirectCommandResult(l, false);
+		}
+		if (verb == "attack") {
+			if (!target->IsEnemy(*actor->Player)) {
+				return AiDirectCommandResult(l, false);
+			}
+			CommandAttack(*actor, target->tilePos, target, EFlushMode::On);
+		} else if (verb == "resource") {
+			if (target->Type->GivesResource == 0) {
+				return AiDirectCommandResult(l, false);
+			}
+			CommandResource(*actor, *target, EFlushMode::On);
+		} else {
+			if (target->Player != actor->Player) {
+				return AiDirectCommandResult(l, false);
+			}
+			CommandRepair(*actor, target->tilePos, target, EFlushMode::On);
+		}
+		return AiDirectCommandResult(l, true);
+	}
+	if (positionArgument) {
+		Vec2i position;
+		CclGetPos(l, &position, 4);
+		if (!Map.Info.IsPointOnMap(position)) {
+			return AiDirectCommandResult(l, false);
+		}
+		if (verb == "resource-location") {
+			CommandResourceLoc(*actor, position, EFlushMode::On);
+		} else {
+			CommandMove(*actor, position, EFlushMode::On);
+		}
+		return AiDirectCommandResult(l, true);
+	}
+	if (verb == "build") {
+		CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 4));
+		if (type == nullptr || !type->Building) {
+			return AiDirectCommandResult(l, false);
+		}
+		if (const auto position = AiFindBuildingPlace(*actor, *type, actor->tilePos)) {
+			CommandBuildBuilding(*actor, *position, *type, EFlushMode::On);
+			return AiDirectCommandResult(l, true);
+		}
+		return AiDirectCommandResult(l, false);
+	}
+	if (verb == "train") {
+		CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 4));
+		if (type == nullptr || type->Building) {
+			return AiDirectCommandResult(l, false);
+		}
+		CommandTrainUnit(*actor, *type, EFlushMode::On);
+		return AiDirectCommandResult(l, true);
+	}
+
+	CUpgrade *upgrade = CUpgrade::Get(LuaToString(l, 4));
+	if (upgrade == nullptr) {
+		return AiDirectCommandResult(l, false);
+	}
+	CommandResearch(*actor, *upgrade, EFlushMode::On);
+	return AiDirectCommandResult(l, true);
+}
+
 namespace
 {
 constexpr auto AiProcessorReconnectDelay = std::chrono::milliseconds(1000);
@@ -2091,6 +2233,7 @@ void AiCclRegister()
 	lua_register(Lua, "AiWaitForces", CclAiWaitForces);
 
 	// for external AI processors
+	lua_register(Lua, "AiDirectCommand", CclAiDirectCommand);
 	lua_register(Lua, "AiProcessorSetup", CclAiProcessorSetup);
 	lua_register(Lua, "AiProcessorStep", CclAiProcessorStep);
 	lua_register(Lua, "AiProcessorEnd", CclAiProcessorEnd);
