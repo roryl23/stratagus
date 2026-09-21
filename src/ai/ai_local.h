@@ -36,14 +36,14 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
+#include "unitptr.h"
+#include "upgrade_structs.h" // MaxCost
+#include "vec2i.h"
+
 #include <array>
 #include <memory>
 #include <optional>
 #include <vector>
-
-#include "upgrade_structs.h" // MaxCost
-#include "unitptr.h"
-#include "vec2i.h"
 
 /*----------------------------------------------------------------------------
 --  Declarations
@@ -62,10 +62,11 @@ class CAiType
 public:
 	CAiType() {}
 
-	std::string Name;     /// Name of this ai
-	std::string Race;     /// for this race
-	std::string Class;    /// class of this ai
-	std::string Script;   /// Main script
+	std::string Name; /// Name of this ai
+	std::string Race; /// for this race
+	std::string Class; /// class of this ai
+	std::string Script; /// Main script
+	unsigned long ScriptInterval = 30; /// Game cycles between script executions
 };
 
 /**
@@ -76,7 +77,7 @@ class AiRequestType
 public:
 	AiRequestType() = default;
 
-	unsigned int Count = 0;    /// elements in table
+	unsigned int Count = 0; /// elements in table
 	CUnitType *Type = nullptr; /// the type
 };
 
@@ -88,23 +89,25 @@ class AiUnitType
 public:
 	AiUnitType() = default;
 
-	unsigned int Want = 0;     /// number of this unit-type wanted
+	unsigned int Want = 0; /// number of this unit-type wanted
 	CUnitType *Type = nullptr; /// unit-type self
 };
 
 /**
 **  Roles for forces
 */
-enum class AiForceRole {
+enum class AiForceRole
+{
 	Default = 0, /// So default is attacking
 	Attack = 0, /// Force should attack
-	Defend      /// Force should defend
+	Defend /// Force should defend
 };
 
 std::optional<AiForceRole> AiForceRoleFromString(std::string_view);
 std::string_view ToString(AiForceRole);
 
-enum class AiForceAttackingState {
+enum class AiForceAttackingState
+{
 	Free = -1,
 	Waiting = 0,
 	Boarding,
@@ -113,7 +116,7 @@ enum class AiForceAttackingState {
 	Attacking,
 };
 
-#define AI_WAIT_ON_RALLY_POINT 60          /// Max seconds AI units will wait on rally point
+#define AI_WAIT_ON_RALLY_POINT 60 /// Max seconds AI units will wait on rally point
 
 /**
 **  Define an AI force.
@@ -123,6 +126,7 @@ enum class AiForceAttackingState {
 class AiForce
 {
 	friend class AiForceManager;
+
 public:
 	AiForce() = default;
 
@@ -178,16 +182,16 @@ private:
 	static void InternalRemoveUnit(CUnit *unit);
 
 public:
-	bool Completed = false;    /// Flag saying force is complete build
-	bool Defending = false;    /// Flag saying force is defending
-	bool Attacking = false;    /// Flag saying force is attacking
-	AiForceRole Role = AiForceRole::Default;  /// Role of the force
+	bool Completed = false; /// Flag saying force is complete build
+	bool Defending = false; /// Flag saying force is defending
+	bool Attacking = false; /// Flag saying force is attacking
+	AiForceRole Role = AiForceRole::Default; /// Role of the force
 
 	std::vector<AiUnitType> UnitTypes; /// Count and types of unit-type
 	std::vector<CUnitRef> Units; /// Units held by the force
 
 	// If attacking
-	int FormerForce = -1;             /// Original force number
+	int FormerForce = -1; /// Original force number
 	AiForceAttackingState State = AiForceAttackingState::Free; /// Attack state
 	Vec2i GoalPos{-1, -1}; /// Attack point tile map position
 	Vec2i HomePos{-1, -1}; /// Return after attack tile map position
@@ -195,8 +199,9 @@ public:
 };
 
 // forces
-#define AI_MAX_FORCES 50                           /// How many forces are supported
-#define AI_MAX_FORCE_INTERNAL (AI_MAX_FORCES / 2)  /// The forces after AI_MAX_FORCE_INTERNAL are for internal use
+#define AI_MAX_FORCES 50 /// How many forces are supported
+#define AI_MAX_FORCE_INTERNAL \
+	(AI_MAX_FORCES / 2) /// The forces after AI_MAX_FORCE_INTERNAL are for internal use
 
 /**
 **  AI force manager.
@@ -254,8 +259,8 @@ public:
 	AiBuildQueue() = default;
 
 public:
-	unsigned int Want = 0;  /// requested number
-	unsigned int Made = 0;  /// built number
+	unsigned int Want = 0; /// requested number
+	unsigned int Made = 0; /// built number
 	CUnitType *Type = nullptr; /// unit-type
 	unsigned long Wait = 0; /// wait until this cycle
 	Vec2i Pos{-1, -1}; /// build near pos on map
@@ -270,8 +275,8 @@ public:
 	AiExplorationRequest(const Vec2i &pos, int mask) : pos(pos), Mask(mask) {}
 
 public:
-	Vec2i pos;          /// pos on map
-	int Mask;           /// mask ( ex: MapFieldLandUnit )
+	Vec2i pos; /// pos on map
+	int Mask; /// mask ( ex: MapFieldLandUnit )
 };
 
 /**
@@ -283,32 +288,33 @@ public:
 	PlayerAi() = default;
 
 public:
-	CPlayer *Player = nullptr;  /// Engine player structure
-	CAiType *AiType = nullptr;  /// AI type of this player AI
+	CPlayer *Player = nullptr; /// Engine player structure
+	CAiType *AiType = nullptr; /// AI type of this player AI
 	// controller
-	std::string Script;         /// Script executed
+	std::string Script; /// Script executed
 	unsigned long SleepCycles = 0; /// Cycles to sleep
+	unsigned long ScriptInterval = 30; /// Game cycles between script executions
 
-	AiForceManager Force;  /// Forces controlled by AI
+	AiForceManager Force; /// Forces controlled by AI
 
 	// resource manager
 	int Reserve[MaxCosts]{}; /// Resources to keep in reserve
-	int Used[MaxCosts]{};    /// Used resources
-	int Needed[MaxCosts]{};  /// Needed resources
+	int Used[MaxCosts]{}; /// Used resources
+	int Needed[MaxCosts]{}; /// Needed resources
 	int Collect[MaxCosts]{}; /// Collect % of resources
-	int NeededMask = 0;      /// Mask for needed resources
+	int NeededMask = 0; /// Mask for needed resources
 	bool NeedSupply = false; /// Flag need food
-	bool ScriptDebug = false;/// Flag script debugging on/off
+	bool ScriptDebug = false; /// Flag script debugging on/off
 	bool BuildDepots = true; /// Build new depots if necessary
 
-	std::vector<AiExplorationRequest> FirstExplorationRequest;/// Requests for exploration
-	unsigned long LastExplorationGameCycle = 0;   /// When did the last explore occur?
-	unsigned long LastCanNotMoveGameCycle = 0;    /// Last can not move cycle
-	std::vector<AiRequestType> UnitTypeRequests;  /// unit-types to build/train request,priority list
-	std::vector<CUnitType *> UpgradeToRequests;   /// Upgrade to unit-type requested and priority list
-	std::vector<CUpgrade *> ResearchRequests;     /// Upgrades requested and priority list
-	std::vector<AiBuildQueue> UnitTypeBuilt;      /// What the resource manager should build
-	int LastRepairBuilding = 0;                   /// Last building checked for repair in this turn
+	std::vector<AiExplorationRequest> FirstExplorationRequest; /// Requests for exploration
+	unsigned long LastExplorationGameCycle = 0; /// When did the last explore occur?
+	unsigned long LastCanNotMoveGameCycle = 0; /// Last can not move cycle
+	std::vector<AiRequestType> UnitTypeRequests; /// unit-types to build/train request,priority list
+	std::vector<CUnitType *> UpgradeToRequests; /// Upgrade to unit-type requested and priority list
+	std::vector<CUpgrade *> ResearchRequests; /// Upgrades requested and priority list
+	std::vector<AiBuildQueue> UnitTypeBuilt; /// What the resource manager should build
+	int LastRepairBuilding = 0; /// Last building checked for repair in this turn
 };
 
 /**
@@ -423,7 +429,8 @@ extern std::pair<CUnit *, CUnit *> AiGetSuitableDepot(const CUnit &worker, const
 // Buildings
 //
 /// Find nice building place
-extern std::optional<Vec2i> AiFindBuildingPlace(const CUnit &worker, const CUnitType &type, const Vec2i &nearPos);
+extern std::optional<Vec2i>
+AiFindBuildingPlace(const CUnit &worker, const CUnitType &type, const Vec2i &nearPos);
 
 //
 // Forces
@@ -453,8 +460,10 @@ extern bool AiFindWall(AiForce &force);
 /// Send explorers around the map
 extern void AiSendExplorers();
 /// Check if there are enemy units in a given range (optionally of type)
-extern bool AiEnemyUnitsInDistance(const CPlayer &player, const CUnitType *type,
-								  const Vec2i &pos, unsigned range);
+extern bool AiEnemyUnitsInDistance(const CPlayer &player,
+                                   const CUnitType *type,
+                                   const Vec2i &pos,
+                                   unsigned range);
 
 //
 // Magic

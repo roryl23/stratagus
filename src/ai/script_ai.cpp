@@ -50,7 +50,10 @@
 #include "upgrade.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -394,9 +397,26 @@ static CAiType *GetAiTypesByName(const std::string_view name)
 */
 static int CclDefineAi(lua_State *l)
 {
-	LuaCheckArgs(l, 4);
+	const int args = lua_gettop(l);
+	if (args != 4 && args != 5) {
+		LuaError(l, "DefineAi expects 4 or 5 arguments");
+	}
 	if (!lua_isfunction(l, 4)) {
-		LuaError(l, "incorrect argument");
+		LuaError(l, "DefineAi 4th argument must be a function");
+	}
+	unsigned long scriptInterval = 30;
+	if (args == 5) {
+		if (!lua_isnumber(l, 5)) {
+			LuaError(l, "DefineAi 5th argument script interval must be a positive integer");
+		}
+		const lua_Number value = lua_tonumber(l, 5);
+		if (!std::isfinite(value) || std::trunc(value) != value || value <= 0
+		    || value > CYCLES_PER_SECOND) {
+			LuaError(l,
+			         "DefineAi 5th argument script interval must be between 1 and %d cycles",
+			         CYCLES_PER_SECOND);
+		}
+		scriptInterval = static_cast<unsigned long>(value);
 	}
 
 	// AI Name
@@ -409,6 +429,7 @@ static int CclDefineAi(lua_State *l)
 #endif
 	AiTypes.insert(AiTypes.begin(), std::make_unique<CAiType>());
 	CAiType *aitype = AiTypes.front().get();
+	aitype->ScriptInterval = scriptInterval;
 	aitype->Name = aiName;
 
 	// AI Race
@@ -433,7 +454,7 @@ static int CclDefineAi(lua_State *l)
 	aitype->Script = aitype->Name + aitype->Race + aitype->Class;
 	lua_pushstring(l, aitype->Script.c_str());
 	lua_pushvalue(l, 4);
-	lua_rawset(l, 5);
+	lua_rawset(l, -3);
 	lua_pop(l, 1);
 
 	return 0;
@@ -1641,6 +1662,7 @@ static int CclDefineAiPlayer(lua_State *l)
 			}
 			ai.AiType = ait;
 			ai.Script = ait->Script;
+			ai.ScriptInterval = ait->ScriptInterval;
 		} else if (value == "script") {
 			ai.Script = LuaToString(l, j + 1);
 		} else if (value == "script-debug") {
@@ -1879,6 +1901,94 @@ static int AiDirectCommandResult(lua_State *l, const bool accepted)
 	lua_pushboolean(l, accepted);
 	return 1;
 }
+static int AiDirectCommandInteger(lua_State *l, const int index, const char *description)
+{
+	if (!lua_isnumber(l, index)) {
+		LuaError(l, "%s must be an integer", description);
+	}
+	const lua_Number value = lua_tonumber(l, index);
+	if (!std::isfinite(value) || std::trunc(value) != value
+	    || value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
+		LuaError(l, "%s must be a representable integer", description);
+	}
+	return static_cast<int>(value);
+}
+
+static int AiDirectCommandTableInteger(lua_State *l,
+                                       const int tableIndex,
+                                       const char *field,
+                                       const char *description)
+{
+	lua_getfield(l, tableIndex, field);
+	const int value = AiDirectCommandInteger(l, -1, description);
+	lua_pop(l, 1);
+	return value;
+}
+static bool AiDirectCommandMapPosition(const int x, const int y, Vec2i &position)
+{
+	if (x < 0 || y < 0 || x > std::numeric_limits<decltype(position.x)>::max()
+	    || y > std::numeric_limits<decltype(position.y)>::max() || x >= Map.Info.MapWidth
+	    || y >= Map.Info.MapHeight) {
+		return false;
+	}
+	position.x = static_cast<decltype(position.x)>(x);
+	position.y = static_cast<decltype(position.y)>(y);
+	return true;
+}
+
+static CUnitType *AiDirectCommandBuildAt(lua_State *l, const int argumentIndex, Vec2i &position)
+{
+	if (!lua_istable(l, argumentIndex)) {
+		LuaError(l,
+		         "AiDirectCommand build-at argument must be table {type = ..., x = ..., y = ...}");
+	}
+	lua_getfield(l, argumentIndex, "type");
+	if (!lua_isstring(l, -1)) {
+		LuaError(l, "AiDirectCommand build-at type must be a unit type identifier");
+	}
+	CUnitType *type = AiDirectCommandUnitType(LuaToString(l, -1));
+	lua_pop(l, 1);
+	const int x = AiDirectCommandTableInteger(l, argumentIndex, "x", "AiDirectCommand build-at x");
+	const int y = AiDirectCommandTableInteger(l, argumentIndex, "y", "AiDirectCommand build-at y");
+	return AiDirectCommandMapPosition(x, y, position) ? type : nullptr;
+}
+static int CclAiCanBuildAt(lua_State *l)
+{
+	if (lua_gettop(l) != 4) {
+		LuaError(l, "AiCanBuildAt expects player, actor slot, type, and {x, y}");
+	}
+
+	const int playerIndex = AiDirectCommandInteger(l, 1, "AiCanBuildAt player");
+	const int actorSlot = AiDirectCommandInteger(l, 2, "AiCanBuildAt actor slot");
+	if (!lua_isstring(l, 3)) {
+		LuaError(l, "AiCanBuildAt type must be a unit type identifier");
+	}
+	if (!lua_istable(l, 4) || lua_rawlen(l, 4) != 2) {
+		LuaError(l, "AiCanBuildAt position must be {x, y}");
+	}
+	lua_rawgeti(l, 4, 1);
+	const int x = AiDirectCommandInteger(l, -1, "AiCanBuildAt position x");
+	lua_pop(l, 1);
+	lua_rawgeti(l, 4, 2);
+	const int y = AiDirectCommandInteger(l, -1, "AiCanBuildAt position y");
+	lua_pop(l, 1);
+	Vec2i position;
+	if (!AiDirectCommandMapPosition(x, y, position)) {
+		return AiDirectCommandResult(l, false);
+	}
+
+	if (playerIndex < 0 || playerIndex >= PlayerMax) {
+		return AiDirectCommandResult(l, false);
+	}
+	CUnit *actor = AiDirectCommandUnit(actorSlot);
+	CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 3));
+
+	if (actor == nullptr || actor->Player != &Players[playerIndex] || type == nullptr
+	    || !type->Building || !Map.Info.IsPointOnMap(position)) {
+		return AiDirectCommandResult(l, false);
+	}
+	return AiDirectCommandResult(l, CanBuildUnitType(actor, *type, position, 0).has_value());
+}
 
 /**
  * AiDirectCommand(player, actor-slot, verb [, argument])
@@ -1892,15 +2002,16 @@ static int CclAiDirectCommand(lua_State *l)
 		LuaError(l, "AiDirectCommand expects 3 or 4 arguments");
 	}
 
-	const int playerIndex = LuaToNumber(l, 1);
-	const int actorSlot = LuaToNumber(l, 2);
+	const int playerIndex = AiDirectCommandInteger(l, 1, "AiDirectCommand player");
+	const int actorSlot = AiDirectCommandInteger(l, 2, "AiDirectCommand actor slot");
 	const std::string_view verb = LuaToString(l, 3);
 	const bool noArgument = verb == "stop" || verb == "stand-ground" || verb == "explore";
 	const bool targetArgument = verb == "attack" || verb == "resource" || verb == "repair";
 	const bool positionArgument = verb == "resource-location" || verb == "move";
 	const bool typeArgument = verb == "build" || verb == "train" || verb == "research";
+	const bool buildAtArgument = verb == "build-at";
 
-	if (!noArgument && !targetArgument && !positionArgument && !typeArgument) {
+	if (!noArgument && !targetArgument && !positionArgument && !typeArgument && !buildAtArgument) {
 		LuaError(l, "unsupported AiDirectCommand verb: %s", verb.data());
 	}
 	if (args != (noArgument ? 3 : 4)) {
@@ -1963,12 +2074,23 @@ static int CclAiDirectCommand(lua_State *l)
 		}
 		return AiDirectCommandResult(l, true);
 	}
+	if (buildAtArgument) {
+		Vec2i position;
+		CUnitType *type = AiDirectCommandBuildAt(l, 4, position);
+		if (type == nullptr || !type->Building || !Map.Info.IsPointOnMap(position)
+		    || !CanBuildUnitType(actor, *type, position, 0).has_value()) {
+			return AiDirectCommandResult(l, false);
+		}
+		CommandBuildBuilding(*actor, position, *type, EFlushMode::On);
+		return AiDirectCommandResult(l, true);
+	}
 	if (verb == "build") {
 		CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 4));
 		if (type == nullptr || !type->Building) {
 			return AiDirectCommandResult(l, false);
 		}
-		if (const auto position = AiFindBuildingPlace(*actor, *type, actor->tilePos)) {
+		if (const auto position = AiFindBuildingPlace(*actor, *type, actor->tilePos);
+		    position && CanBuildUnitType(actor, *type, *position, 0).has_value()) {
 			CommandBuildBuilding(*actor, *position, *type, EFlushMode::On);
 			return AiDirectCommandResult(l, true);
 		}
@@ -1994,15 +2116,24 @@ static int CclAiDirectCommand(lua_State *l)
 namespace
 {
 constexpr auto AiProcessorReconnectDelay = std::chrono::milliseconds(1000);
+constexpr size_t AiProcessorHeaderWords = 22;
+constexpr size_t AiProcessorEntityWords = 14;
+constexpr size_t AiProcessorCandidateWords = 12;
+constexpr size_t AiProcessorMaxWords = 65536;
+constexpr uint32_t AiProcessorMaxCandidates = 512;
 
 struct AiProcessorConnection final
 {
 	std::string host;
 	int port;
-	int stateDim;
-	int actionDim;
 	uint32_t sequence;
 	std::unique_ptr<CTCPSocket> socket;
+};
+
+struct AiProcessorFrame final
+{
+	std::vector<char> bytes;
+	uint32_t candidateCount;
 };
 
 static void AiProcessorClose(AiProcessorConnection &connection)
@@ -2045,14 +2176,13 @@ static bool AiProcessorConnect(AiProcessorConnection &connection)
 {
 	auto socket = std::make_unique<CTCPSocket>();
 	if (!socket->Open(CHost()) || !socket->Connect(CHost(connection.host, connection.port))) {
+		if (socket->IsValid()) {
+			socket->Close();
+		}
 		return false;
 	}
 
-	const char setup[] = {
-		'I',
-		static_cast<char>(connection.stateDim),
-		static_cast<char>(connection.actionDim),
-	};
+	const char setup[] = {'I', static_cast<char>(3)};
 	if (!AiProcessorSendAll(*socket, setup, sizeof(setup))) {
 		socket->Close();
 		return false;
@@ -2066,93 +2196,198 @@ static AiProcessorConnection *AiProcessorHandle(lua_State *l)
 {
 	auto *connection = static_cast<AiProcessorConnection *>(lua_touserdata(l, 1));
 	if (connection == nullptr) {
-		LuaError(
-			l,
-			"first argument must be valid handle returned from a previous AiProcessorSetup call");
+		LuaError(l,
+		         "first argument must be valid handle returned from a previous "
+		         "AiProcessorSetup call");
 	}
 	return connection;
 }
 
-static std::vector<char>
-AiProcessorFrame(lua_State *l, const AiProcessorConnection &connection, char prefix)
+static uint32_t AiProcessorStateWord(lua_State *l,
+                                     const int stateIndex,
+                                     const size_t wordIndex,
+                                     const char *description)
 {
-	LuaCheckArgs(l, 3);
+	lua_rawgeti(l, stateIndex, static_cast<int>(wordIndex));
+	if (!lua_isnumber(l, -1)) {
+		LuaError(l, "%s must be an unsigned 32-bit integer", description);
+	}
+	const lua_Number value = lua_tonumber(l, -1);
+	if (!std::isfinite(value) || std::trunc(value) != value || value < 0
+	    || value > static_cast<lua_Number>(std::numeric_limits<uint32_t>::max())) {
+		LuaError(l, "%s must be an unsigned 32-bit integer", description);
+	}
+	lua_pop(l, 1);
+	return static_cast<uint32_t>(value);
+}
+
+static int32_t AiProcessorReward(lua_State *l)
+{
+	if (!lua_isnumber(l, 2)) {
+		LuaError(l, "AI processor reward must be a signed 32-bit integer");
+	}
+	const lua_Number value = lua_tonumber(l, 2);
+	if (!std::isfinite(value) || std::trunc(value) != value
+	    || value < std::numeric_limits<int32_t>::min()
+	    || value > std::numeric_limits<int32_t>::max()) {
+		LuaError(l, "AI processor reward must be a signed 32-bit integer");
+	}
+	return static_cast<int32_t>(value);
+}
+
+static uint32_t AiProcessorStateCount(lua_State *l,
+                                      const int stateIndex,
+                                      const int wordIndex,
+                                      const char *description)
+{
+	return AiProcessorStateWord(l, stateIndex, static_cast<size_t>(wordIndex), description);
+}
+
+static AiProcessorFrame
+AiProcessorMakeFrame(lua_State *l, const AiProcessorConnection &connection, const char prefix)
+{
+	const int expectedArgs = prefix == 'S' ? 4 : 3;
+	if (lua_gettop(l) != expectedArgs) {
+		LuaError(l, "AiProcessor%c expects %d arguments", prefix == 'S' ? 'S' : 'E', expectedArgs);
+	}
 	if (!lua_istable(l, 3)) {
-		LuaError(l, "3rd argument to AiProcessorStep must be table");
+		LuaError(l, "3rd argument to AI processor call must be a state word table");
 	}
-	if (lua_rawlen(l, 3) != static_cast<size_t>(connection.stateDim)) {
+
+	const size_t wordCount = lua_rawlen(l, 3);
+	if (wordCount < AiProcessorHeaderWords || wordCount > AiProcessorMaxWords) {
 		LuaError(l,
-		         "3rd argument to AiProcessorStep must contain %d state variables",
-		         connection.stateDim);
+		         "AI processor state must contain between %zu and %zu words",
+		         AiProcessorHeaderWords,
+		         AiProcessorMaxWords);
+	}
+	const uint32_t stateVersion = AiProcessorStateCount(l, 3, 1, "AI processor state version");
+	if (stateVersion != 3) {
+		LuaError(l, "AI processor state version must be 3");
+	}
+	const uint32_t entityCount = AiProcessorStateCount(l, 3, 11, "AI processor state entity count");
+	const uint32_t stateCandidateCount =
+		AiProcessorStateCount(l, 3, 12, "AI processor state candidate count");
+	if (entityCount > (AiProcessorMaxWords - AiProcessorHeaderWords) / AiProcessorEntityWords) {
+		LuaError(l, "AI processor state entity count exceeds the state size limit");
+	}
+	if (prefix == 'S') {
+		if (stateCandidateCount == 0 || stateCandidateCount > AiProcessorMaxCandidates) {
+			LuaError(l,
+			         "AI processor state candidate count must be between 1 and %u",
+			         AiProcessorMaxCandidates);
+		}
+	} else if (stateCandidateCount != 0) {
+		LuaError(l, "AI processor terminal state candidate count must be 0");
+	}
+	const size_t expectedWords =
+		AiProcessorHeaderWords + static_cast<size_t>(entityCount) * AiProcessorEntityWords
+		+ static_cast<size_t>(stateCandidateCount) * AiProcessorCandidateWords;
+	if (wordCount != expectedWords) {
+		LuaError(l,
+		         "AI processor state has %zu words; expected %zu from its entity and candidate "
+		         "counts",
+		         wordCount,
+		         expectedWords);
+	}
+	if (prefix == 'S') {
+		const size_t firstCandidateWord =
+			AiProcessorHeaderWords + static_cast<size_t>(entityCount) * AiProcessorEntityWords + 1;
+		if (AiProcessorStateWord(l, 3, firstCandidateWord, "AI processor state candidate 1 kind")
+		    != 0) {
+			LuaError(l, "AI processor state candidate 1 must be wait");
+		}
 	}
 
-	std::vector<char> frame(1 + sizeof(uint32_t) * (connection.stateDim + 2));
-	frame[0] = prefix;
+	uint32_t candidateCount = stateCandidateCount;
+	if (prefix == 'S') {
+		const int suppliedCandidateCount =
+			AiDirectCommandInteger(l, 4, "AiProcessorStep candidate count");
+		if (suppliedCandidateCount <= 0
+		    || static_cast<uint32_t>(suppliedCandidateCount) > AiProcessorMaxCandidates) {
+			LuaError(l,
+			         "AiProcessorStep candidate count must be between 1 and %u",
+			         AiProcessorMaxCandidates);
+		}
+		candidateCount = static_cast<uint32_t>(suppliedCandidateCount);
+		if (candidateCount != stateCandidateCount) {
+			LuaError(l, "AiProcessorStep candidate count does not match the state candidate count");
+		}
+	}
+	const int32_t reward = AiProcessorReward(l);
+	for (size_t wordIndex = 1; wordIndex <= wordCount; ++wordIndex) {
+		AiProcessorStateWord(l, 3, wordIndex, "AI processor state word");
+	}
 
-	const auto sequence = htonl(connection.sequence);
-	memcpy(frame.data() + 1, &sequence, sizeof(sequence));
-
-	const auto reward = htonl(static_cast<uint32_t>(static_cast<int32_t>(LuaToNumber(l, 2))));
-	memcpy(frame.data() + 1 + sizeof(uint32_t), &reward, sizeof(reward));
-
-	for (int i = 0; i < connection.stateDim; ++i) {
-		const auto state = htonl(static_cast<uint32_t>(LuaToUnsignedNumber(l, 3, i + 1)));
-		memcpy(frame.data() + 1 + sizeof(uint32_t) * (i + 2), &state, sizeof(state));
+	AiProcessorFrame frame{std::vector<char>(1 + sizeof(uint32_t) * (4 + wordCount)),
+	                       candidateCount};
+	frame.bytes[0] = prefix;
+	auto writeWord = [&frame](const size_t index, const uint32_t value) {
+		const uint32_t networkValue = htonl(value);
+		memcpy(
+			frame.bytes.data() + 1 + sizeof(uint32_t) * index, &networkValue, sizeof(networkValue));
+	};
+	writeWord(0, connection.sequence);
+	writeWord(1, static_cast<uint32_t>(reward));
+	writeWord(2, static_cast<uint32_t>(wordCount));
+	writeWord(3, candidateCount);
+	for (size_t index = 0; index < wordCount; ++index) {
+		writeWord(4 + index, AiProcessorStateWord(l, 3, index + 1, "AI processor state word"));
 	}
 	return frame;
 }
 } // namespace
 
 /**
- * AiProcessorSetup(host, port, number_of_state_variables, number_of_actions)
+ * AiProcessorSetup(host, port)
  *
- * Connect to an AI agent running at host:port, that will consume
- * number_of_state_variables every step and select one of number_of_actions.
+ * Connect once to a protocol-v3 AI processor at host:port. Returns nil if it
+ * is unavailable so an AI script can continue without an external processor.
  */
 static int CclAiProcessorSetup(lua_State *l)
 {
 	InitNetwork1();
-	LuaCheckArgs(l, 4);
-
-	const std::string host{LuaToString(l, 1)};
-	const int port = LuaToNumber(l, 2);
-	const int stateDim = LuaToNumber(l, 3);
-	const int actionDim = LuaToNumber(l, 4);
-	if (stateDim <= 0 || stateDim > UINT8_MAX || actionDim <= 0 || actionDim > UINT8_MAX) {
-		LuaError(l, "AI processor dimensions must be between 1 and %u", UINT8_MAX);
+	if (lua_gettop(l) != 2) {
+		LuaError(l, "AiProcessorSetup expects host and port");
+	}
+	if (!lua_isstring(l, 1) || LuaToString(l, 1).empty()) {
+		LuaError(l, "AiProcessorSetup host must be a non-empty string");
+	}
+	const int port = AiDirectCommandInteger(l, 2, "AiProcessorSetup port");
+	if (port <= 0 || port > UINT16_MAX) {
+		LuaError(l, "AiProcessorSetup port must be between 1 and %u", UINT16_MAX);
 	}
 
 	auto connection = std::make_unique<AiProcessorConnection>(
-		AiProcessorConnection{host, port, stateDim, actionDim, 0, nullptr});
-
-	while (!AiProcessorConnect(*connection)) {
-		std::this_thread::sleep_for(AiProcessorReconnectDelay);
+		AiProcessorConnection{std::string{LuaToString(l, 1)}, port, 0, nullptr});
+	if (!AiProcessorConnect(*connection)) {
+		lua_pushnil(l);
+		return 1;
 	}
-
 	lua_pushlightuserdata(l, connection.release());
 	return 1;
 }
 
 /**
- * AiProcessorStep(handle, reward_since_last_call, table_of_state_variables)
+ * AiProcessorStep(handle, reward_since_last_call, state_words, candidate_count)
  */
 static int CclAiProcessorStep(lua_State *l)
 {
 	AiProcessorConnection *connection = AiProcessorHandle(l);
-	const std::vector<char> frame = AiProcessorFrame(l, *connection, 'S');
+	const AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'S');
 
 	for (;;) {
 		if (!connection->socket && !AiProcessorConnect(*connection)) {
 			std::this_thread::sleep_for(AiProcessorReconnectDelay);
 			continue;
 		}
-		if (!AiProcessorSendAll(*connection->socket, frame.data(), frame.size())) {
+		if (!AiProcessorSendAll(*connection->socket, frame.bytes.data(), frame.bytes.size())) {
 			AiProcessorClose(*connection);
 			std::this_thread::sleep_for(AiProcessorReconnectDelay);
 			continue;
 		}
 
-		uint8_t action;
+		uint32_t selectedNetwork;
 		for (;;) {
 			const int ready = connection->socket->HasDataToRead(
 				static_cast<int>(AiProcessorReconnectDelay.count()));
@@ -2160,10 +2395,20 @@ static int CclAiProcessorStep(lua_State *l)
 				continue;
 			}
 			if (ready > 0
-			    && AiProcessorReceiveAll(
-					*connection->socket, reinterpret_cast<char *>(&action), sizeof(action))) {
+			    && AiProcessorReceiveAll(*connection->socket,
+			                             reinterpret_cast<char *>(&selectedNetwork),
+			                             sizeof(selectedNetwork))) {
+				const uint32_t selected = ntohl(selectedNetwork);
+				if (selected >= frame.candidateCount) {
+					AiProcessorClose(*connection);
+					LuaError(l,
+					         "AI processor selected candidate %u but only %u candidates were "
+					         "supplied",
+					         selected,
+					         frame.candidateCount);
+				}
 				++connection->sequence;
-				lua_pushnumber(l, action + 1); // +1 since lua tables are 1-indexed
+				lua_pushnumber(l, selected + 1); // Lua candidate tables are one-indexed.
 				return 1;
 			}
 			break;
@@ -2177,10 +2422,10 @@ static int CclAiProcessorStep(lua_State *l)
 static int CclAiProcessorEnd(lua_State *l)
 {
 	AiProcessorConnection *connection = AiProcessorHandle(l);
-	const std::vector<char> frame = AiProcessorFrame(l, *connection, 'E');
+	const AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'E');
 
 	if (connection->socket) {
-		AiProcessorSendAll(*connection->socket, frame.data(), frame.size());
+		AiProcessorSendAll(*connection->socket, frame.bytes.data(), frame.bytes.size());
 		AiProcessorClose(*connection);
 	}
 	delete connection;
@@ -2234,6 +2479,7 @@ void AiCclRegister()
 
 	// for external AI processors
 	lua_register(Lua, "AiDirectCommand", CclAiDirectCommand);
+	lua_register(Lua, "AiCanBuildAt", CclAiCanBuildAt);
 	lua_register(Lua, "AiProcessorSetup", CclAiProcessorSetup);
 	lua_register(Lua, "AiProcessorStep", CclAiProcessorStep);
 	lua_register(Lua, "AiProcessorEnd", CclAiProcessorEnd);

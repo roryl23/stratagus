@@ -28,7 +28,6 @@
 //      02111-1307, USA.
 //
 
-
 //@{
 
 //----------------------------------------------------------------------------
@@ -137,19 +136,18 @@
 -- Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "ai.h"
-#include "ai_local.h"
 
-#include "actions.h"
 #include "action/action_attack.h"
+#include "actions.h"
+#include "ai_local.h"
 #include "commands.h"
 #include "iolib.h"
 #include "map.h"
 #include "pathfinder.h"
 #include "player.h"
 #include "script.h"
+#include "stratagus.h"
 #include "unit.h"
 #include "unit_manager.h"
 #include "unittype.h"
@@ -159,12 +157,12 @@
 -- Variables
 ----------------------------------------------------------------------------*/
 
-int AiSleepCycles;              /// Ai sleeps # cycles
+int AiSleepCycles; /// Ai sleeps # cycles
 
 std::vector<std::unique_ptr<CAiType>> AiTypes; /// List of all AI types.
-AiHelper AiHelpers;             /// AI helper variables
+AiHelper AiHelpers; /// AI helper variables
 
-PlayerAi *AiPlayer;             /// Current AI player
+PlayerAi *AiPlayer; /// Current AI player
 
 /*----------------------------------------------------------------------------
 -- Low level functions
@@ -193,7 +191,7 @@ static void AiCheckUnits()
 	//  Count the already made build requests.
 	auto counter = AiGetBuildRequestsCount(*AiPlayer);
 
-	const int(&unit_types_count)[UnitTypeMax] = AiPlayer->Player->UnitTypesAiActiveCount;
+	const int (&unit_types_count)[UnitTypeMax] = AiPlayer->Player->UnitTypesAiActiveCount;
 
 	//  Look if some unit-types are missing.
 	for (AiRequestType &requestType : AiPlayer->UnitTypeRequests) {
@@ -208,7 +206,7 @@ static void AiCheckUnits()
 			}
 		}
 		const int requested = x - e - counter[t];
-		if (requested > 0) {  // Request it.
+		if (requested > 0) { // Request it.
 			AiAddUnitTypeRequest(*requestType.Type, requested);
 			counter[t] += requested;
 		}
@@ -231,7 +229,7 @@ static void AiCheckUnits()
 		}
 
 		const int requested = x - e - counter[t];
-		if (requested > 0) {  // Request it.
+		if (requested > 0) { // Request it.
 			AiAddUpgradeToRequest(*unitType);
 			counter[t] += requested;
 		}
@@ -289,10 +287,11 @@ static void SaveAiPlayer(CFile &file, int plynr, const PlayerAi &ai)
 
 	//  All forces
 	for (size_t i = 0; i < ai.Force.Size(); ++i) {
-		file.printf("  \"force\", {%d, %s%s%s", (int) i,
-					ai.Force[i].Completed ? "\"complete\"," : "\"recruit\",",
-					ai.Force[i].Attacking ? " \"attack\"," : "",
-					ai.Force[i].Defending ? " \"defend\"," : "");
+		file.printf("  \"force\", {%d, %s%s%s",
+		            (int) i,
+		            ai.Force[i].Completed ? "\"complete\"," : "\"recruit\",",
+		            ai.Force[i].Attacking ? " \"attack\"," : "",
+		            ai.Force[i].Defending ? " \"defend\"," : "");
 
 		file.printf(R"( "role", "%s",)", ToString(ai.Force[i].Role).data());
 
@@ -305,7 +304,9 @@ static void SaveAiPlayer(CFile &file, int plynr, const PlayerAi &ai)
 			file.printf(" %d, \"%s\",", UnitNumber(*aiunit), aiunit->Type->Ident.c_str());
 		}
 		file.printf("},\n    \"state\", %d, \"goalx\", %d, \"goaly\", %d,",
-					static_cast<int>(ai.Force[i].State), ai.Force[i].GoalPos.x, ai.Force[i].GoalPos.y);
+		            static_cast<int>(ai.Force[i].State),
+		            ai.Force[i].GoalPos.x,
+		            ai.Force[i].GoalPos.y);
 		file.printf("},\n");
 	}
 
@@ -355,7 +356,7 @@ static void SaveAiPlayer(CFile &file, int plynr, const PlayerAi &ai)
 	file.printf("  \"last-exploration-cycle\", %lu,\n", ai.LastExplorationGameCycle);
 	file.printf("  \"last-can-not-move-cycle\", %lu,\n", ai.LastCanNotMoveGameCycle);
 	file.printf("  \"unit-type\", {");
-	for (const auto& requestType : ai.UnitTypeRequests) {
+	for (const auto &requestType : ai.UnitTypeRequests) {
 		file.printf("\"%s\", %d, ", requestType.Type->Ident.c_str(), requestType.Count);
 	}
 	file.printf("},\n");
@@ -436,10 +437,10 @@ void AiInit(CPlayer &player)
 		Exit(0);
 	}
 
-	auto it = ranges::find_if(AiTypes, [&](const auto& ait){
+	auto it = ranges::find_if(AiTypes, [&](const auto &ait) {
 		return (ait->Race.empty() || ait->Race == PlayerRaces.Name[player.Race])
 		    && (player.AiName.empty() || ait->Name == player.AiName);
-		});
+	});
 	CAiType *ait = nullptr;
 	if (it == AiTypes.end()) {
 		LogPrint("AI: Found no matching ai scripts at all, defaulting to the first AI!\n");
@@ -459,6 +460,7 @@ void AiInit(CPlayer &player)
 
 	pai->AiType = ait;
 	pai->Script = ait->Script;
+	pai->ScriptInterval = ait->ScriptInterval;
 
 	pai->Collect[GoldCost] = 50;
 	pai->Collect[WoodCost] = 50;
@@ -475,7 +477,6 @@ void InitAiModule()
 	AiResetUnitTypeEquiv();
 }
 
-
 /**
 **  Cleanup the AI in order to enable to restart a game.
 */
@@ -485,7 +486,6 @@ void CleanAi()
 		Players[p].Ai = nullptr;
 	}
 }
-
 
 /**
 **  Free all AI resources.
@@ -526,8 +526,7 @@ static bool AiRemoveFromBuilt2(PlayerAi &pai, const CUnitType &type)
 {
 	auto it = ranges::find_if(pai.UnitTypeBuilt,
 	                          [&](const AiBuildQueue &q) { return q.Made && q.Type == &type; });
-	if (it != pai.UnitTypeBuilt.end())
-	{
+	if (it != pai.UnitTypeBuilt.end()) {
 		--(*it).Made;
 		if (!--(*it).Want) {
 			pai.UnitTypeBuilt.erase(it);
@@ -575,8 +574,7 @@ static bool AiReduceMadeInBuilt2(PlayerAi &pai, const CUnitType &type)
 	auto it = ranges::find_if(pai.UnitTypeBuilt,
 	                          [&](const AiBuildQueue &q) { return q.Made && q.Type == &type; });
 
-	if (it != pai.UnitTypeBuilt.end())
-	{
+	if (it != pai.UnitTypeBuilt.end()) {
 		(*it).Made--;
 		return true;
 	}
@@ -660,21 +658,26 @@ void AiHelpMe(const CUnit *attacker, CUnit &defender)
 			// can attack our attacker then ask for help
 			// FIXME ad support for help from Coward type units
 			if (aiunit->IsAggressive() && CanTarget(*aiunit->Type, *attacker->Type)
-				&& aiunit->CurrentOrder()->GetGoal() != attacker) {
+			    && aiunit->CurrentOrder()->GetGoal() != attacker) {
 				bool shouldAttack = aiunit->IsIdle() && aiunit->Threshold == 0;
 
 				if (aiunit->CurrentAction() == UnitAction::Attack) {
-					const COrder_Attack &orderAttack = *static_cast<COrder_Attack *>(aiunit->CurrentOrder());
+					const COrder_Attack &orderAttack =
+						*static_cast<COrder_Attack *>(aiunit->CurrentOrder());
 					const CUnit *oldGoal = orderAttack.GetGoal();
 
-					if (oldGoal == nullptr || (ThreatCalculate(defender, *attacker) < ThreatCalculate(defender, *oldGoal)
-											&& aiunit->MapDistanceTo(defender) <= aiunit->Stats->Variables[ATTACKRANGE_INDEX].Max)) {
+					if (oldGoal == nullptr
+					    || (ThreatCalculate(defender, *attacker)
+					            < ThreatCalculate(defender, *oldGoal)
+					        && aiunit->MapDistanceTo(defender)
+					               <= aiunit->Stats->Variables[ATTACKRANGE_INDEX].Max)) {
 						shouldAttack = true;
 					}
 				}
 
 				if (shouldAttack) {
-					CommandAttack(*aiunit, attacker->tilePos, const_cast<CUnit *>(attacker), EFlushMode::On);
+					CommandAttack(
+						*aiunit, attacker->tilePos, const_cast<CUnit *>(attacker), EFlushMode::On);
 					auto savedOrder = COrder::NewActionAttack(*aiunit, attacker->tilePos);
 
 					if (aiunit->CanStoreOrder(savedOrder.get())) {
@@ -810,7 +813,14 @@ void AiCanNotReach(CUnit &unit, const CUnitType &what)
 */
 static void AiMoveUnitInTheWay(CUnit &unit)
 {
-	static Vec2i dirs[8] = {Vec2i(-1, -1), Vec2i(-1, 0), Vec2i(-1, 1), Vec2i(0, 1), Vec2i(1, 1), Vec2i(1, 0), Vec2i(1, -1), Vec2i(0, -1)};
+	static Vec2i dirs[8] = {Vec2i(-1, -1),
+	                        Vec2i(-1, 0),
+	                        Vec2i(-1, 1),
+	                        Vec2i(0, 1),
+	                        Vec2i(1, 1),
+	                        Vec2i(1, 0),
+	                        Vec2i(1, -1),
+	                        Vec2i(0, -1)};
 	CUnit *movableunits[16];
 	Vec2i movablepos[16];
 	int movablenb;
@@ -1008,6 +1018,10 @@ void AiResearchComplete(CUnit &unit, const CUpgrade *what)
 void AiEachCycle(CPlayer &player)
 {
 	AiPlayer = player.Ai.get();
+	if (AiPlayer != nullptr && AiPlayer->ScriptInterval < CYCLES_PER_SECOND
+	    && GameCycle % AiPlayer->ScriptInterval == player.Index % AiPlayer->ScriptInterval) {
+		AiExecuteScript();
+	}
 }
 
 /**
@@ -1024,8 +1038,9 @@ void AiEachSecond(CPlayer &player)
 	}
 #endif
 
-	//  Advance script
-	AiExecuteScript();
+	if (AiPlayer->ScriptInterval == CYCLES_PER_SECOND) {
+		AiExecuteScript();
+	}
 
 	//  Look if everything is fine.
 	AiCheckUnits();
