@@ -42,14 +42,13 @@
 -- Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "spells.h"
 
 #include "actions.h"
 #include "commands.h"
 #include "map.h"
 #include "sound.h"
+#include "stratagus.h"
 #include "unit.h"
 #include "unit_find.h"
 #include "upgrade.h"
@@ -81,7 +80,6 @@ static void WarnInvalidSpellCooldown(const CUnit &unit, const SpellType &spell, 
 	           context);
 }
 
-
 /*----------------------------------------------------------------------------
 -- Functions
 ----------------------------------------------------------------------------*/
@@ -101,8 +99,11 @@ static void WarnInvalidSpellCooldown(const CUnit &unit, const SpellType &spell, 
 **
 **  @return            true if passed, false otherwise.
 */
-static bool PassCondition(const CUnit &caster, const SpellType &spell, const CUnit *target,
-						  const Vec2i &goalPos, const ConditionInfo *condition)
+static bool PassCondition(const CUnit &caster,
+                          const SpellType &spell,
+                          const CUnit *target,
+                          const Vec2i &goalPos,
+                          const ConditionInfo *condition)
 {
 	if (caster.Variable[MANA_INDEX].Value < spell.ManaCost) { // Check caster mana.
 		return false;
@@ -142,19 +143,19 @@ static bool PassCondition(const CUnit &caster, const SpellType &spell, const CUn
 			}
 		}
 		// Value and Max
-		if (condition->Variable[i].ExactValue != -1 &&
-			condition->Variable[i].ExactValue != unit->Variable[i].Value) {
+		if (condition->Variable[i].ExactValue != -1
+		    && condition->Variable[i].ExactValue != unit->Variable[i].Value) {
 			return false;
 		}
-		if (condition->Variable[i].ExceptValue != -1 &&
-			condition->Variable[i].ExceptValue == unit->Variable[i].Value) {
+		if (condition->Variable[i].ExceptValue != -1
+		    && condition->Variable[i].ExceptValue == unit->Variable[i].Value) {
 			return false;
 		}
 		if (condition->Variable[i].MinValue >= unit->Variable[i].Value) {
 			return false;
 		}
-		if (condition->Variable[i].MaxValue != -1 &&
-			condition->Variable[i].MaxValue <= unit->Variable[i].Value) {
+		if (condition->Variable[i].MaxValue != -1
+		    && condition->Variable[i].MaxValue <= unit->Variable[i].Value) {
 			return false;
 		}
 
@@ -167,11 +168,11 @@ static bool PassCondition(const CUnit &caster, const SpellType &spell, const CUn
 		}
 		// Percent
 		if (condition->Variable[i].MinValuePercent * unit->Variable[i].Max
-			>= 100 * unit->Variable[i].Value) {
+		    >= 100 * unit->Variable[i].Value) {
 			return false;
 		}
 		if (condition->Variable[i].MaxValuePercent * unit->Variable[i].Max
-			<= 100 * unit->Variable[i].Value) {
+		    <= 100 * unit->Variable[i].Value) {
 			return false;
 		}
 	}
@@ -217,7 +218,10 @@ class AutoCastPrioritySort
 {
 public:
 	AutoCastPrioritySort(const CUnit &caster, const int var, const bool reverse) :
-		caster(caster), variable(var), reverse(reverse) {}
+		caster(caster),
+		variable(var),
+		reverse(reverse)
+	{}
 	bool operator()(const CUnit *lhs, const CUnit *rhs) const
 	{
 		if (variable == ACP_DISTANCE) {
@@ -234,6 +238,7 @@ public:
 			}
 		}
 	}
+
 private:
 	const CUnit &caster;
 	const int variable;
@@ -250,9 +255,10 @@ private:
 **  @todo FIXME: should be global (for AI) ???
 **  @todo FIXME: write for position target.
 */
-static std::optional<std::pair<CUnit*, Vec2i>> SelectTargetUnitsOfAutoCast(CUnit &caster, const SpellType &spell)
+static std::optional<std::pair<CUnit *, Vec2i>> SelectTargetUnitsOfAutoCast(CUnit &caster,
+                                                                            const SpellType &spell)
 {
-	AutoCastInfo *autocast;
+	AutoCastInfo *autocast = nullptr;
 
 	// Ai cast should be a lot better. Use autocast if not found.
 	if (caster.Player->AiEnabled && spell.AICast) {
@@ -260,15 +266,17 @@ static std::optional<std::pair<CUnit*, Vec2i>> SelectTargetUnitsOfAutoCast(CUnit
 	} else {
 		autocast = spell.AutoCast.get();
 	}
-	Assert(autocast);
+	if (autocast == nullptr) {
+		return std::nullopt;
+	}
 	const Vec2i &pos = caster.tilePos;
 	int range = autocast->Range;
 	int minRange = autocast->MinRange;
 
 	// Select all units around the caster
-	std::vector<CUnit *> table = SelectAroundUnit(caster, range, OutOfMinRange(minRange, caster.tilePos));
-	if (minRange == 0)
-		table.push_back(&caster); // Allow self as target (we check conditions later)
+	std::vector<CUnit *> table =
+		SelectAroundUnit(caster, range, OutOfMinRange(minRange, caster.tilePos));
+	if (minRange == 0) table.push_back(&caster); // Allow self as target (we check conditions later)
 
 	// Check generic conditions. FIXME: a better way to do this?
 	if (autocast->Combat != ECondition::Ignore) {
@@ -291,7 +299,7 @@ static std::optional<std::pair<CUnit*, Vec2i>> SelectTargetUnitsOfAutoCast(CUnit
 	switch (spell.Target) {
 		case ETarget::Self:
 			if (PassCondition(caster, spell, &caster, pos, spell.Condition.get())
-				&& PassCondition(caster, spell, &caster, pos, autocast->Condition.get())) {
+			    && PassCondition(caster, spell, &caster, pos, autocast->Condition.get())) {
 				return std::pair{&caster, caster.tilePos};
 			}
 			return std::nullopt;
@@ -331,15 +339,17 @@ static std::optional<std::pair<CUnit*, Vec2i>> SelectTargetUnitsOfAutoCast(CUnit
 			// The units are already selected.
 			//  Check every unit if it is a possible target
 
-			ranges::erase_if(table, [&](const auto* unit) {
+			ranges::erase_if(table, [&](const auto *unit) {
 				// Check if unit in battle
 				if (autocast->Attacker == ECondition::ShouldBeTrue) {
-					const int range = unit->Player->Type == PlayerTypes::PlayerPerson ? unit->Type->ReactRangePerson : unit->Type->ReactRangeComputer;
+					const int range = unit->Player->Type == PlayerTypes::PlayerPerson
+					                    ? unit->Type->ReactRangePerson
+					                    : unit->Type->ReactRangeComputer;
 					if ((unit->CurrentAction() != UnitAction::Attack
-						 && unit->CurrentAction() != UnitAction::AttackGround
-						 && unit->CurrentAction() != UnitAction::SpellCast)
-						|| unit->CurrentOrder()->HasGoal() == false
-						|| unit->MapDistanceTo(unit->CurrentOrder()->GetGoalPos()) > range) {
+					     && unit->CurrentAction() != UnitAction::AttackGround
+					     && unit->CurrentAction() != UnitAction::SpellCast)
+					    || unit->CurrentOrder()->HasGoal() == false
+					    || unit->MapDistanceTo(unit->CurrentOrder()->GetGoalPos()) > range) {
 						return true;
 					}
 				}
@@ -393,8 +403,7 @@ static std::optional<std::pair<CUnit*, Vec2i>> SelectTargetUnitsOfAutoCast(CUnit
 ** Spells constructor, inits spell id's and sounds
 */
 void InitSpells()
-{
-}
+{}
 
 /**
 **  Get spell-type struct pointer by string identifier.
@@ -442,8 +451,10 @@ bool SpellIsAvailable(const CPlayer &player, int spellid)
 **  @return          true if spell should/can casted, false if not
 **  @note caster must know the spell, and spell must be researched.
 */
-bool CanCastSpell(const CUnit &caster, const SpellType &spell,
-				  const CUnit *target, const Vec2i &goalPos)
+bool CanCastSpell(const CUnit &caster,
+                  const SpellType &spell,
+                  const CUnit *target,
+                  const Vec2i &goalPos)
 {
 	if (spell.Target == ETarget::Unit && target == nullptr) {
 		return false;
@@ -466,9 +477,9 @@ bool AutoCastSpell(CUnit &caster, const SpellType &spell)
 	}
 	//  Check for mana and cooldown time, trivial optimization.
 	if (!SpellIsAvailable(*caster.Player, spell.Slot)
-		|| caster.Variable[MANA_INDEX].Value < spell.ManaCost
-		|| (spell.Slot < caster.SpellCoolDownTimers.size()
-		    && caster.SpellCoolDownTimers[spell.Slot])) {
+	    || caster.Variable[MANA_INDEX].Value < spell.ManaCost
+	    || (spell.Slot < caster.SpellCoolDownTimers.size()
+	        && caster.SpellCoolDownTimers[spell.Slot])) {
 		return false;
 	}
 	auto target = SelectTargetUnitsOfAutoCast(caster, spell);
@@ -477,7 +488,8 @@ bool AutoCastSpell(CUnit &caster, const SpellType &spell)
 	} else {
 		// Save previous order
 		std::unique_ptr<COrder> savedOrder;
-		if (caster.CurrentAction() != UnitAction::Still && caster.CanStoreOrder(caster.CurrentOrder())) {
+		if (caster.CurrentAction() != UnitAction::Still
+		    && caster.CanStoreOrder(caster.CurrentOrder())) {
 			savedOrder = caster.CurrentOrder()->Clone();
 		}
 		auto [targetUnit, targetPos] = *target;
@@ -504,7 +516,8 @@ int SpellCast(CUnit &caster, const SpellType &spell, CUnit *target, const Vec2i 
 {
 	Vec2i pos = goalPos;
 
-	caster.Variable[INVISIBLE_INDEX].Value = 0;// unit is invisible until attacks // FIXME: Must be configurable
+	caster.Variable[INVISIBLE_INDEX].Value =
+		0; // unit is invisible until attacks // FIXME: Must be configurable
 	if (target) {
 		pos = target->tilePos;
 	}
@@ -523,7 +536,8 @@ int SpellCast(CUnit &caster, const SpellType &spell, CUnit *target, const Vec2i 
 	           pos.y);
 	if (CanCastSpell(caster, spell, target, pos)) {
 		int cont = 1; // Should we recast the spell.
-		bool mustSubtractMana = true; // false if action which have their own calculation is present.
+		bool mustSubtractMana =
+			true; // false if action which have their own calculation is present.
 		//
 		//  Ugly hack, CastAdjustVitals makes it's own mana calculation.
 		//
@@ -537,7 +551,7 @@ int SpellCast(CUnit &caster, const SpellType &spell, CUnit *target, const Vec2i 
 				                      spell.SoundWhenCast.Sound->Range));
 			}
 		}
-		for (auto& act : spell.Action) {
+		for (auto &act : spell.Action) {
 			if (act->ModifyManaCaster) {
 				mustSubtractMana = false;
 			}

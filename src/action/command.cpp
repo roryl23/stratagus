@@ -33,25 +33,24 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
-#include "actions.h"
-#include "action/action_built.h"
 #include "action/action_build.h"
+#include "action/action_built.h"
 #include "action/action_research.h"
 #include "action/action_train.h"
 #include "action/action_upgradeto.h"
+#include "actions.h"
 #include "commands.h"
 #include "map.h"
 #include "pathfinder.h"
 #include "player.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "translate.h"
-#include "upgrade.h"
 #include "ui.h"
 #include "unit.h"
 #include "unit_manager.h"
 #include "unittype.h"
+#include "upgrade.h"
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -70,7 +69,8 @@ static void ReleaseOrders(CUnit &unit)
 	for (size_t i = 0; i != unit.Orders.size(); ++i) {
 		if (unit.Orders[i]->Action == UnitAction::Built) {
 			(dynamic_cast<COrder_Built *>(unit.Orders[i].get()))->Cancel(unit);
-		} if (unit.Orders[i]->Action == UnitAction::Build) {
+		}
+		if (unit.Orders[i]->Action == UnitAction::Build) {
 			(dynamic_cast<COrder_Build *>(unit.Orders[i].get()))->Cancel(unit);
 		} else if (unit.Orders[i]->Action == UnitAction::Research) {
 			(dynamic_cast<COrder_Research *>(unit.Orders[i].get()))->Cancel(unit);
@@ -147,7 +147,6 @@ static bool IsUnitValidForNetwork(const CUnit &unit)
 	return !unit.Removed && unit.CurrentAction() != UnitAction::Die;
 }
 
-
 /*----------------------------------------------------------------------------
 --  Commands
 ----------------------------------------------------------------------------*/
@@ -201,7 +200,7 @@ void CommandStandGround(CUnit &unit, EFlushMode flush)
 void CommandDefend(CUnit &unit, CUnit &dest, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -228,7 +227,7 @@ void CommandDefend(CUnit &unit, CUnit &dest, EFlushMode flush)
 void CommandFollow(CUnit &unit, CUnit &dest, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -257,7 +256,7 @@ void CommandMove(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 	Assert(Map.Info.IsPointOnMap(pos));
 
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -285,7 +284,7 @@ void CommandMove(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 void CommandRepair(CUnit &unit, const Vec2i &pos, CUnit *dest, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -315,7 +314,7 @@ void CommandRepair(CUnit &unit, const Vec2i &pos, CUnit *dest, EFlushMode flush)
 void CommandAutoRepair(CUnit &unit, int on)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	unit.AutoRepair = on;
 }
@@ -332,7 +331,7 @@ void CommandAttack(CUnit &unit, const Vec2i &pos, CUnit *target, EFlushMode flus
 {
 	Assert(Map.Info.IsPointOnMap(pos));
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 
 	std::unique_ptr<COrder> *order = nullptr;
@@ -366,7 +365,7 @@ void CommandAttackGround(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 	Assert(Map.Info.IsPointOnMap(pos));
 
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -397,7 +396,7 @@ void CommandPatrolUnit(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 	Assert(Map.Info.IsPointOnMap(pos));
 
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 
 	const Vec2i invalidPos(-1, -1);
@@ -405,9 +404,9 @@ void CommandPatrolUnit(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 	Vec2i startPos = unit.tilePos;
 	auto *prevOrder = &unit.Orders.back();
 
-	if(*prevOrder != nullptr) {
+	if (*prevOrder != nullptr) {
 		Vec2i prevGoalPos = (*prevOrder)->GetGoalPos();
-		if(prevGoalPos != invalidPos) {
+		if (prevGoalPos != invalidPos) {
 			startPos = prevGoalPos;
 		}
 	}
@@ -438,10 +437,10 @@ void CommandPatrolUnit(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 void CommandBoard(CUnit &unit, CUnit &dest, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	if (dest.Destroyed) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -469,7 +468,7 @@ void CommandBoard(CUnit &unit, CUnit &dest, EFlushMode flush)
 void CommandUnload(CUnit &unit, const Vec2i &pos, CUnit *what, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	auto *order = GetNextOrder(unit, flush);
 
@@ -491,11 +490,12 @@ void CommandUnload(CUnit &unit, const Vec2i &pos, CUnit *what, EFlushMode flush)
 void CommandBuildBuilding(CUnit &unit, const Vec2i &pos, CUnitType &what, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
-	if (unit.Type->Building && !what.BoolFlag[BUILDEROUTSIDE_INDEX].value && unit.MapDistanceTo(pos) > unit.Type->RepairRange) {
+	if (unit.Type->Building && !what.BoolFlag[BUILDEROUTSIDE_INDEX].value
+	    && unit.MapDistanceTo(pos) > unit.Type->RepairRange) {
 		ClearNewAction(unit);
 		order = &unit.NewOrder;
 	} else {
@@ -517,7 +517,7 @@ void CommandBuildBuilding(CUnit &unit, const Vec2i &pos, CUnitType &what, EFlush
 void CommandExplore(CUnit &unit, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -562,11 +562,11 @@ void CommandDismiss(CUnit &unit)
 void CommandResourceLoc(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	if (!unit.Type->Building && !unit.Type->BoolFlag[HARVESTER_INDEX].value) {
 		ClearSavedAction(unit);
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -593,14 +593,14 @@ void CommandResourceLoc(CUnit &unit, const Vec2i &pos, EFlushMode flush)
 void CommandResource(CUnit &unit, CUnit &dest, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	if (dest.Destroyed) {
-		return ;
+		return;
 	}
 	if (!unit.Type->Building && !unit.Type->BoolFlag[HARVESTER_INDEX].value) {
 		ClearSavedAction(unit);
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -627,12 +627,12 @@ void CommandResource(CUnit &unit, CUnit &dest, EFlushMode flush)
 void CommandReturnGoods(CUnit &unit, CUnit *depot, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	if ((unit.Type->BoolFlag[HARVESTER_INDEX].value && unit.ResourcesHeld == 0)
-		|| (!unit.Type->Building && !unit.Type->BoolFlag[HARVESTER_INDEX].value)) {
+	    || (!unit.Type->Building && !unit.Type->BoolFlag[HARVESTER_INDEX].value)) {
 		ClearSavedAction(unit);
-		return ;
+		return;
 	}
 	std::unique_ptr<COrder> *order = nullptr;
 
@@ -659,12 +659,11 @@ void CommandReturnGoods(CUnit &unit, CUnit *depot, EFlushMode flush)
 void CommandTrainUnit(CUnit &unit, CUnitType &type, EFlushMode)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	// Check if enough resources remains? (NETWORK!)
 	// FIXME: wrong if append to message queue!!!
-	if (unit.Player->CheckLimits(type) != ECheckLimit::Ok
-		|| unit.Player->CheckUnitType(type)) {
+	if (unit.Player->CheckLimits(type) != ECheckLimit::Ok || unit.Player->CheckUnitType(type)) {
 		return;
 	}
 	// Not already training?
@@ -738,7 +737,7 @@ void CommandCancelTraining(CUnit &unit, int slot, const CUnitType *type)
 void CommandUpgradeTo(CUnit &unit, CUnitType &type, EFlushMode flush, bool instant)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 
 	// Check if enough resources remains? (NETWORK!)
@@ -799,7 +798,7 @@ void CommandCancelUpgradeTo(CUnit &unit)
 void CommandResearch(CUnit &unit, CUpgrade &what, EFlushMode flush)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	// Check if enough resources remains? (NETWORK!)
 	if (unit.Player->CheckCosts(what.Costs)) {
@@ -840,7 +839,12 @@ void CommandCancelResearch(CUnit &unit)
 **  @param spell  Spell type pointer.
 **  @param flush  If On, flush command queue.
 */
-void CommandSpellCast(CUnit &unit, const Vec2i &pos, CUnit *dest, const SpellType &spell, EFlushMode flush, bool isAutocast)
+void CommandSpellCast(CUnit &unit,
+                      const Vec2i &pos,
+                      CUnit *dest,
+                      const SpellType &spell,
+                      EFlushMode flush,
+                      bool isAutocast)
 {
 	DebugPrint(": %d casts %s at %d %d on %d\n",
 	           UnitNumber(unit),
@@ -862,7 +866,7 @@ void CommandSpellCast(CUnit &unit, const Vec2i &pos, CUnit *dest, const SpellTyp
 	Assert(Map.Info.IsPointOnMap(pos));
 
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	auto *order = GetNextOrder(unit, flush);
 
@@ -870,7 +874,7 @@ void CommandSpellCast(CUnit &unit, const Vec2i &pos, CUnit *dest, const SpellTyp
 		return;
 	}
 
-	*order = COrder::NewActionSpellCast(spell, pos, dest, true);
+	*order = COrder::NewActionSpellCast(spell, pos, dest, isAutocast);
 	ClearSavedAction(unit);
 }
 
@@ -884,7 +888,7 @@ void CommandSpellCast(CUnit &unit, const Vec2i &pos, CUnit *dest, const SpellTyp
 void CommandAutoSpellCast(CUnit &unit, int spellid, int on)
 {
 	if (IsUnitValidForNetwork(unit) == false) {
-		return ;
+		return;
 	}
 	if (spellid < 0 || static_cast<size_t>(spellid) >= unit.AutoCastSpell.size()) {
 		ErrorPrint("Warning: ignoring invalid autocast command for unit type '%s'; spell id %d "
@@ -907,18 +911,10 @@ void CommandAutoSpellCast(CUnit &unit, int spellid, int on)
 void CommandDiplomacy(int player, EDiplomacy state, int opponent)
 {
 	switch (state) {
-		case EDiplomacy::Neutral:
-			Players[player].SetDiplomacyNeutralWith(Players[opponent]);
-			break;
-		case EDiplomacy::Allied:
-			Players[player].SetDiplomacyAlliedWith(Players[opponent]);
-			break;
-		case EDiplomacy::Enemy:
-			Players[player].SetDiplomacyEnemyWith(Players[opponent]);
-			break;
-		case EDiplomacy::Crazy:
-			Players[player].SetDiplomacyCrazyWith(Players[opponent]);
-			break;
+		case EDiplomacy::Neutral: Players[player].SetDiplomacyNeutralWith(Players[opponent]); break;
+		case EDiplomacy::Allied: Players[player].SetDiplomacyAlliedWith(Players[opponent]); break;
+		case EDiplomacy::Enemy: Players[player].SetDiplomacyEnemyWith(Players[opponent]); break;
+		case EDiplomacy::Crazy: Players[player].SetDiplomacyCrazyWith(Players[opponent]); break;
 	}
 }
 

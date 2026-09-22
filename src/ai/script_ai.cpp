@@ -1941,6 +1941,26 @@ static bool AiDirectCommandMapPosition(const int x, const int y, Vec2i &position
 	position.y = static_cast<decltype(position.y)>(y);
 	return true;
 }
+static SpellType *
+AiDirectCommandCastPosition(lua_State *l, const int argumentIndex, Vec2i &position)
+{
+	if (!lua_istable(l, argumentIndex)) {
+		LuaError(l,
+		         "AiDirectCommand cast-position argument must be table "
+		         "{spell = ..., x = ..., y = ...}");
+	}
+	lua_getfield(l, argumentIndex, "spell");
+	if (!lua_isstring(l, -1)) {
+		LuaError(l, "AiDirectCommand cast-position spell must be a spell identifier");
+	}
+	SpellType *spell = AiDirectCommandSpellType(LuaToString(l, -1));
+	lua_pop(l, 1);
+	const int x =
+		AiDirectCommandTableInteger(l, argumentIndex, "x", "AiDirectCommand cast-position x");
+	const int y =
+		AiDirectCommandTableInteger(l, argumentIndex, "y", "AiDirectCommand cast-position y");
+	return AiDirectCommandMapPosition(x, y, position) ? spell : nullptr;
+}
 
 static CUnitType *AiDirectCommandBuildAt(lua_State *l, const int argumentIndex, Vec2i &position)
 {
@@ -2017,8 +2037,10 @@ static int CclAiDirectCommand(lua_State *l)
 	const bool typeArgument =
 		verb == "build" || verb == "train" || verb == "research" || verb == "cast-auto";
 	const bool buildAtArgument = verb == "build-at";
+	const bool castPositionArgument = verb == "cast-position";
 
-	if (!noArgument && !targetArgument && !positionArgument && !typeArgument && !buildAtArgument) {
+	if (!noArgument && !targetArgument && !positionArgument && !typeArgument && !buildAtArgument
+	    && !castPositionArgument) {
 		LuaError(l, "unsupported AiDirectCommand verb: %s", verb.data());
 	}
 	if (args != (noArgument ? 3 : 4)) {
@@ -2081,6 +2103,19 @@ static int CclAiDirectCommand(lua_State *l)
 		}
 		return AiDirectCommandResult(l, true);
 	}
+	if (castPositionArgument) {
+		Vec2i position;
+		SpellType *spell = AiDirectCommandCastPosition(l, 4, position);
+		if (spell == nullptr || spell->Target != ETarget::Position
+		    || spell->Slot >= actor->Type->CanCastSpell.size()
+		    || !actor->Type->CanCastSpell[spell->Slot]
+		    || !SpellIsAvailable(*actor->Player, spell->Slot)
+		    || !CanCastSpell(*actor, *spell, nullptr, position)) {
+			return AiDirectCommandResult(l, false);
+		}
+		CommandSpellCast(*actor, position, nullptr, *spell, EFlushMode::On, false);
+		return AiDirectCommandResult(l, true);
+	}
 	if (buildAtArgument) {
 		Vec2i position;
 		CUnitType *type = AiDirectCommandBuildAt(l, 4, position);
@@ -2113,9 +2148,10 @@ static int CclAiDirectCommand(lua_State *l)
 	}
 	if (verb == "cast-auto") {
 		SpellType *spell = AiDirectCommandSpellType(LuaToString(l, 4));
-		if (spell == nullptr || spell->Slot >= static_cast<int>(actor->Type->CanCastSpell.size())
+		if (spell == nullptr || spell->Slot >= actor->Type->CanCastSpell.size()
 		    || !actor->Type->CanCastSpell[spell->Slot]
-		    || !SpellIsAvailable(*actor->Player, spell->Slot)) {
+		    || !SpellIsAvailable(*actor->Player, spell->Slot)
+		    || (!(actor->Player->AiEnabled && spell->AICast) && !spell->AutoCast)) {
 			return AiDirectCommandResult(l, false);
 		}
 		return AiDirectCommandResult(l, AutoCastSpell(*actor, *spell));
