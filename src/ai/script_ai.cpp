@@ -43,6 +43,7 @@
 #include "pathfinder.h"
 #include "player.h"
 #include "script.h"
+#include "spells.h"
 #include "stratagus.h"
 #include "unit.h"
 #include "unit_manager.h"
@@ -1895,6 +1896,11 @@ static CUnitType *AiDirectCommandUnitType(const std::string_view ident)
 	}
 	return nullptr;
 }
+static SpellType *AiDirectCommandSpellType(const std::string_view ident)
+{
+	const auto it = ranges::find(SpellTypeTable, ident, &SpellType::Ident);
+	return it != SpellTypeTable.end() ? it->get() : nullptr;
+}
 
 static int AiDirectCommandResult(lua_State *l, const bool accepted)
 {
@@ -2008,7 +2014,8 @@ static int CclAiDirectCommand(lua_State *l)
 	const bool noArgument = verb == "stop" || verb == "stand-ground" || verb == "explore";
 	const bool targetArgument = verb == "attack" || verb == "resource" || verb == "repair";
 	const bool positionArgument = verb == "resource-location" || verb == "move";
-	const bool typeArgument = verb == "build" || verb == "train" || verb == "research";
+	const bool typeArgument =
+		verb == "build" || verb == "train" || verb == "research" || verb == "cast-auto";
 	const bool buildAtArgument = verb == "build-at";
 
 	if (!noArgument && !targetArgument && !positionArgument && !typeArgument && !buildAtArgument) {
@@ -2103,6 +2110,15 @@ static int CclAiDirectCommand(lua_State *l)
 		}
 		CommandTrainUnit(*actor, *type, EFlushMode::On);
 		return AiDirectCommandResult(l, true);
+	}
+	if (verb == "cast-auto") {
+		SpellType *spell = AiDirectCommandSpellType(LuaToString(l, 4));
+		if (spell == nullptr || spell->Slot >= static_cast<int>(actor->Type->CanCastSpell.size())
+		    || !actor->Type->CanCastSpell[spell->Slot]
+		    || !SpellIsAvailable(*actor->Player, spell->Slot)) {
+			return AiDirectCommandResult(l, false);
+		}
+		return AiDirectCommandResult(l, AutoCastSpell(*actor, *spell));
 	}
 
 	CUpgrade *upgrade = CUpgrade::Get(LuaToString(l, 4));
