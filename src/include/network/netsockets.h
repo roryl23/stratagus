@@ -122,6 +122,8 @@ public:
 	bool SetNonBlocking();
 	//
 	int HasDataToRead(int timeout);
+	/// Wait up to timeout milliseconds for write/connect readiness.
+	int HasSpaceToWrite(int timeout);
 	bool IsValid() const;
 
 private:

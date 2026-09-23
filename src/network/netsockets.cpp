@@ -38,6 +38,7 @@
 #include "net_lowlevel.h"
 #include "stratagus.h"
 
+#include <cerrno>
 #include <cstdio>
 
 //
@@ -217,6 +218,27 @@ public:
 	}
 	bool SetNonBlocking() { return NetSetNonBlocking(socket) != -1; }
 	int HasDataToRead(int timeout) { return NetSocketReady(socket, timeout); }
+	int HasSpaceToWrite(int timeout)
+	{
+		fd_set writable;
+		fd_set errors;
+		FD_ZERO(&writable);
+		FD_ZERO(&errors);
+		FD_SET(socket, &writable);
+		FD_SET(socket, &errors);
+		timeval wait{};
+		wait.tv_sec = timeout / 1000;
+		wait.tv_usec = (timeout % 1000) * 1000;
+		const int ready = select(static_cast<int>(socket + 1), nullptr, &writable, &errors, &wait);
+		if (ready >= 0) {
+			return ready;
+		}
+#ifdef USE_WINSOCK
+		return WSAGetLastError() == WSAEINTR ? 0 : -1;
+#else
+		return errno == EINTR ? 0 : -1;
+#endif
+	}
 	bool IsValid() const { return socket != Socket(-1); }
 
 private:
@@ -289,6 +311,11 @@ bool CTCPSocket::SetNonBlocking()
 int CTCPSocket::HasDataToRead(int timeout)
 {
 	return m_impl->HasDataToRead(timeout);
+}
+
+int CTCPSocket::HasSpaceToWrite(int timeout)
+{
+	return m_impl->HasSpaceToWrite(timeout);
 }
 
 bool CTCPSocket::IsValid() const

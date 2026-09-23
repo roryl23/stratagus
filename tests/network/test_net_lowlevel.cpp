@@ -27,9 +27,12 @@
 //      02111-1307, USA.
 //
 
+// clang-format off
+// doctest's operator L() must precede Stratagus's function-like L macro.
 #include <doctest.h>
-
 #include "stratagus.h"
+// clang-format on
+
 #include "net_lowlevel.h"
 
 #include <cstdio>
@@ -74,7 +77,7 @@ static unsigned long GetMyIP()
 	return NetResolveHost(buf);
 }
 
-template<typename T>
+template <typename T>
 void TCPWrite(Socket socket, const T &obj)
 {
 	const char *buf = reinterpret_cast<const char *>(&obj);
@@ -84,7 +87,7 @@ void TCPWrite(Socket socket, const T &obj)
 	}
 }
 
-template<typename T>
+template <typename T>
 void TCPRead(Socket socket, T *obj)
 {
 	char *buf = reinterpret_cast<char *>(obj);
@@ -104,7 +107,10 @@ public:
 	void Accept() { clientSocket = NetAcceptTCP(socket, &clientHost, &clientPort); }
 
 	template <typename T>
-	void Write(const T &obj) { TCPWrite(clientSocket, obj); }
+	void Write(const T &obj)
+	{
+		TCPWrite(clientSocket, obj);
+	}
 
 	unsigned long GetClientHost() const { return clientHost; }
 	int GetClientPort() const { return clientPort; }
@@ -122,10 +128,16 @@ public:
 	explicit ClientTCP(int port) { socket = NetOpenTCP(nullptr, port); }
 	~ClientTCP() { NetCloseTCP(socket); }
 
-	bool Connect(const char *host, int port) { return NetConnectTCP(socket, NetResolveHost(host), port) != -1; }
+	bool Connect(const char *host, int port)
+	{
+		return NetConnectTCP(socket, NetResolveHost(host), port) != -1;
+	}
 
 	template <typename T>
-	void Read(T *obj) { TCPRead(socket, obj); }
+	void Read(T *obj)
+	{
+		TCPRead(socket, obj);
+	}
 
 private:
 	Socket socket;
@@ -152,6 +164,7 @@ public:
 		}
 		return true;
 	}
+
 public:
 	char data[42]{};
 };
@@ -159,11 +172,11 @@ public:
 class ReceiverTCPJob : public Job
 {
 public:
-	explicit ReceiverTCPJob(ClientTCP& client) : client(&client), check(false) {}
+	explicit ReceiverTCPJob(ClientTCP &client) : client(&client), check(false) {}
 
 	bool Check() const { return check; }
-private:
 
+private:
 	void DoJob() override
 	{
 		Foo foo;
@@ -171,6 +184,7 @@ private:
 		client->Read(&foo);
 		check = foo.Check();
 	}
+
 private:
 	ClientTCP *client;
 	bool check;
@@ -179,12 +193,11 @@ private:
 class SenderTCPJob : public Job
 {
 public:
-	explicit SenderTCPJob(ServerTCP& server) : server(&server) {}
+	explicit SenderTCPJob(ServerTCP &server) : server(&server) {}
 
 private:
 	void DoJob() override
 	{
-		server->Listen();
 		server->Accept();
 
 		Foo foo;
@@ -192,6 +205,7 @@ private:
 		foo.Fill();
 		server->Write(foo);
 	}
+
 private:
 	ServerTCP *server;
 };
@@ -202,6 +216,8 @@ TEST_CASE_FIXTURE(AutoNetwork, "ExchangeTCP")
 	const int clientPort = 6501;
 
 	ServerTCP server(serverPort);
+	// Connect must not race the sender thread's listen operation.
+	REQUIRE(server.Listen());
 	SenderTCPJob sender(server);
 	sender.Run();
 
@@ -221,7 +237,7 @@ TEST_CASE_FIXTURE(AutoNetwork, "ExchangeTCP")
 	CHECK(isLocalHost);
 }
 
-template<typename T>
+template <typename T>
 void UDPWrite(Socket socket, const char *hostname, int port, const T &obj)
 {
 	const long host = NetResolveHost(hostname);
@@ -229,7 +245,7 @@ void UDPWrite(Socket socket, const char *hostname, int port, const T &obj)
 	NetSendUDP(socket, host, port, buf, sizeof(T));
 }
 
-template<typename T>
+template <typename T>
 void UDPRead(Socket socket, T *obj, unsigned long *hostFrom, int *portFrom)
 {
 	char *buf = reinterpret_cast<char *>(obj);
@@ -246,10 +262,16 @@ public:
 	~ClientUDP() { NetCloseUDP(socket); }
 
 	template <typename T>
-	void Read(T *obj) { UDPRead(socket, obj, &hostFrom, &portFrom); }
+	void Read(T *obj)
+	{
+		UDPRead(socket, obj, &hostFrom, &portFrom);
+	}
 
 	template <typename T>
-	void Write(const char *hostname, long port, const T &obj) { UDPWrite(socket, hostname, port, obj); }
+	void Write(const char *hostname, long port, const T &obj)
+	{
+		UDPWrite(socket, hostname, port, obj);
+	}
 
 	unsigned long GetHostFrom() const { return hostFrom; }
 	int GetPortFrom() const { return portFrom; }
@@ -263,11 +285,11 @@ private:
 class ReceiverUDPJob : public Job
 {
 public:
-	explicit ReceiverUDPJob(ClientUDP& client) : client(&client), check(false) {}
+	explicit ReceiverUDPJob(ClientUDP &client) : client(&client), check(false) {}
 
 	bool Check() const { return check; }
-private:
 
+private:
 	void DoJob() override
 	{
 		Foo foo;
@@ -275,6 +297,7 @@ private:
 		client->Read(&foo);
 		check = foo.Check();
 	}
+
 private:
 	ClientUDP *client;
 	bool check;
@@ -283,7 +306,7 @@ private:
 class SenderUDPJob : public Job
 {
 public:
-	explicit SenderUDPJob(ClientUDP& client, const char *hostname, int port) :
+	explicit SenderUDPJob(ClientUDP &client, const char *hostname, int port) :
 		client(&client),
 		hostname(hostname),
 		port(port)
@@ -297,6 +320,7 @@ private:
 		foo.Fill();
 		client->Write(hostname, port, foo);
 	}
+
 private:
 	ClientUDP *client;
 	const char *hostname;

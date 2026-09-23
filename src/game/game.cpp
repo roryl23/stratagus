@@ -34,8 +34,6 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "game.h"
 
 #include "actions.h"
@@ -63,6 +61,7 @@
 #include "sound.h"
 #include "sound_server.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "tileset.h"
 #include "translate.h"
 #include "trigger.h"
@@ -74,8 +73,10 @@
 #include "version.h"
 #include "video.h"
 
-#include <memory>
 #include <SDL_image.h>
+#include <cmath>
+#include <limits>
+#include <memory>
 
 extern void CleanGame();
 
@@ -83,17 +84,17 @@ extern void CleanGame();
 --  Variables
 ----------------------------------------------------------------------------*/
 
-Settings GameSettings;  /// Game Settings
-static bool LcmPreventRecurse;   /// prevent recursion through LoadGameMap
-GameResults GameResult;                      /// Outcome of the game
+Settings GameSettings; /// Game Settings
+static bool LcmPreventRecurse; /// prevent recursion through LoadGameMap
+GameResults GameResult; /// Outcome of the game
 
 std::string GameName;
 std::string FullGameName;
 
-unsigned long GameCycle;             /// Game simulation cycle counter
-unsigned long FastForwardCycle;      /// Cycle to fast forward to in a replay
+unsigned long GameCycle; /// Game simulation cycle counter
+unsigned long FastForwardCycle; /// Cycle to fast forward to in a replay
 
-bool UseHPForXp = false;              /// true if gain XP by dealing damage, false if by killing.
+bool UseHPForXp = false; /// true if gain XP by dealing damage, false if by killing.
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -109,9 +110,7 @@ extern std::unique_ptr<gcn::Gui> Gui;
 void SaveGameSettings(CFile &file)
 {
 	file.printf("\n");
-	GameSettings.Save([&](std::string field) {
-		file.printf("GameSettings.%s\n", field.c_str());
-	});
+	GameSettings.Save([&](std::string field) { file.printf("GameSettings.%s\n", field.c_str()); });
 	file.printf("\n");
 }
 
@@ -187,7 +186,8 @@ static void LoadStratagusMap(const fs::path &smpdir, const fs::path &mapname)
 		};
 		if (ranges::any_of(extra_extensions, [&](const auto extension) {
 				auto extra_candidate = candidate;
-				extra_candidate.replace_extension(candidate.extension().string() + extension.data());
+				extra_candidate.replace_extension(candidate.extension().string()
+			                                      + extension.data());
 				return fs::exists(extra_candidate);
 			})) {
 			mapfull = candidate;
@@ -226,8 +226,8 @@ static void WriteMapPreview(const fs::path &mapname, CMap &map)
 {
 	const int rectSize = 5; // size of rectange used for player start spots
 	const SDL_PixelFormat *fmt = MinimapSurface->format;
-	SDL_Surface *preview = SDL_CreateRGBSurface(SDL_SWSURFACE,
-												UI.Minimap.W, UI.Minimap.H, 32, fmt->Rmask, fmt->Gmask, fmt->Bmask, 0);
+	SDL_Surface *preview = SDL_CreateRGBSurface(
+		SDL_SWSURFACE, UI.Minimap.W, UI.Minimap.H, 32, fmt->Rmask, fmt->Gmask, fmt->Bmask, 0);
 	SDL_BlitSurface(MinimapSurface, nullptr, preview, nullptr);
 
 	SDL_LockSurface(preview);
@@ -248,15 +248,7 @@ static void WriteMapPreview(const fs::path &mapname, CMap &map)
 }
 
 std::string PlayerTypeNames[static_cast<int>(PlayerTypes::PlayerRescueActive) + 1] = {
-	"",
-	"",
-	"neutral",
-	"nobody",
-	"computer",
-	"person",
-	"rescue-passive",
-	"rescue-active"
-};
+	"", "", "neutral", "nobody", "computer", "person", "rescue-passive", "rescue-active"};
 
 // Write the map presentation file
 static bool WriteMapPresentation(const fs::path &mapname, CMap &map, Vec2i newSize)
@@ -276,7 +268,9 @@ static bool WriteMapPresentation(const fs::path &mapname, CMap &map, Vec2i newSi
 			--topplayer;
 		}
 		for (int i = 0; i <= topplayer; ++i) {
-			f->printf("%s\"%s\"", (i ? ", " : ""), PlayerTypeNames[static_cast<int>(map.Info.PlayerType[i])].c_str());
+			f->printf("%s\"%s\"",
+			          (i ? ", " : ""),
+			          PlayerTypeNames[static_cast<int>(map.Info.PlayerType[i])].c_str());
 			if (map.Info.PlayerType[i] == PlayerTypes::PlayerPerson) {
 				++numplayers;
 			}
@@ -289,20 +283,23 @@ static bool WriteMapPresentation(const fs::path &mapname, CMap &map, Vec2i newSi
 		}
 
 		f->printf("PresentMap(\"%s\", %d, %d, %d, %d%s)\n",
-				  map.Info.Description.c_str(), numplayers, newSize.x, newSize.y,
-				  map.Info.MapUID + 1,
-				  Map.Info.IsHighgroundsEnabled()? ", \"highgrounds-enabled\"" : "");
+		          map.Info.Description.c_str(),
+		          numplayers,
+		          newSize.x,
+		          newSize.y,
+		          map.Info.MapUID + 1,
+		          Map.Info.IsHighgroundsEnabled() ? ", \"highgrounds-enabled\"" : "");
 
 		if (map.Info.Filename.find(".sms") == std::string::npos && !map.Info.Filename.empty()) {
 			f->printf("DefineMapSetup(\"%s\")\n", map.Info.Filename.c_str());
 		}
-	} catch (const FileException &) {
+	}
+	catch (const FileException &) {
 		ErrorPrint("ERROR: cannot write the map presentation\n");
 		return false;
 	}
 	return true;
 }
-
 
 /**
 **  Write the map setup file.
@@ -311,7 +308,8 @@ static bool WriteMapPresentation(const fs::path &mapname, CMap &map, Vec2i newSi
 **  @param map           map to save
 **  @param writeTerrain  write the tiles map in the .sms
 */
-static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain, Vec2i newSize, Vec2i offset)
+static bool
+WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain, Vec2i newSize, Vec2i offset)
 {
 	try {
 		std::unique_ptr<FileWriter> f = CreateFileWriter(mapSetup);
@@ -322,9 +320,11 @@ static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain,
 		f->printf("-- File licensed under the GNU GPL version 2.\n\n");
 
 		f->printf("-- preamble\n");
-		f->printf("if CanAccessFile(__file__ .. \".preamble\") then Load(__file__ .. \".preamble\", Editor.Running == 0) end\n\n");
+		f->printf("if CanAccessFile(__file__ .. \".preamble\") then Load(__file__ .. "
+		          "\".preamble\", Editor.Running == 0) end\n\n");
 		if (!Map.Info.Preamble.empty()) {
-			std::unique_ptr<FileWriter> preamble = CreateFileWriter(mapSetup.string() + ".preamble");
+			std::unique_ptr<FileWriter> preamble =
+				CreateFileWriter(mapSetup.string() + ".preamble");
 			preamble->write(Map.Info.Preamble);
 		}
 
@@ -333,20 +333,24 @@ static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain,
 			if (Map.Info.PlayerType[i] == PlayerTypes::PlayerNobody) {
 				continue;
 			}
-			f->printf("SetStartView(%d, %d, %d)\n", i, Players[i].StartPos.x, Players[i].StartPos.y);
+			f->printf(
+				"SetStartView(%d, %d, %d)\n", i, Players[i].StartPos.x, Players[i].StartPos.y);
 			f->printf("SetPlayerData(%d, \"Resources\", \"%s\", %d)\n",
-					  i, DefaultResourceNames[WoodCost].c_str(),
-					  Players[i].Resources[WoodCost]);
+			          i,
+			          DefaultResourceNames[WoodCost].c_str(),
+			          Players[i].Resources[WoodCost]);
 			f->printf("SetPlayerData(%d, \"Resources\", \"%s\", %d)\n",
-					  i, DefaultResourceNames[GoldCost].c_str(),
-					  Players[i].Resources[GoldCost]);
+			          i,
+			          DefaultResourceNames[GoldCost].c_str(),
+			          Players[i].Resources[GoldCost]);
 			f->printf("SetPlayerData(%d, \"Resources\", \"%s\", %d)\n",
-					  i, DefaultResourceNames[OilCost].c_str(),
-					  Players[i].Resources[OilCost]);
+			          i,
+			          DefaultResourceNames[OilCost].c_str(),
+			          Players[i].Resources[OilCost]);
 			f->printf("SetPlayerData(%d, \"RaceName\", \"%s\")\n",
-					  i, PlayerRaces.Name[Players[i].Race].c_str());
-			f->printf("SetAiType(%d, \"%s\")\n",
-					  i, Players[i].AiName.c_str());
+			          i,
+			          PlayerRaces.Name[Players[i].Race].c_str());
+			f->printf("SetAiType(%d, \"%s\")\n", i, Players[i].AiName.c_str());
 		}
 		f->printf("\n");
 
@@ -392,56 +396,97 @@ static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain,
 			const CUnitType &type = *typePtr;
 			for (unsigned int j = 0; j < MaxCosts; ++j) {
 				if (type.MapDefaultStat.Costs[j] != type.DefaultStat.Costs[j]) {
-					f->printf("SetMapStat(\"%s\", \"Costs\", %d, \"%s\")\n", type.Ident.c_str(), type.MapDefaultStat.Costs[j], DefaultResourceNames[j].c_str());
+					f->printf("SetMapStat(\"%s\", \"Costs\", %d, \"%s\")\n",
+					          type.Ident.c_str(),
+					          type.MapDefaultStat.Costs[j],
+					          DefaultResourceNames[j].c_str());
 				}
 			}
 			for (unsigned int j = 0; j < MaxCosts; ++j) {
 				if (type.MapDefaultStat.ImproveIncomes[j] != type.DefaultStat.ImproveIncomes[j]) {
-					f->printf("SetMapStat(\"%s\", \"ImproveProduction\", %d, \"%s\")\n", type.Ident.c_str(), type.MapDefaultStat.ImproveIncomes[j], DefaultResourceNames[j].c_str());
+					f->printf("SetMapStat(\"%s\", \"ImproveProduction\", %d, \"%s\")\n",
+					          type.Ident.c_str(),
+					          type.MapDefaultStat.ImproveIncomes[j],
+					          DefaultResourceNames[j].c_str());
 				}
 			}
 			for (size_t j = 0; j < UnitTypeVar.GetNumberVariable(); ++j) {
 				if (type.MapDefaultStat.Variables[j] != type.DefaultStat.Variables[j]) {
-					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Value\")\n", type.Ident.c_str(), UnitTypeVar.VariableNameLookup[j].data(), type.MapDefaultStat.Variables[j].Value);
-					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Max\")\n", type.Ident.c_str(), UnitTypeVar.VariableNameLookup[j].data(), type.MapDefaultStat.Variables[j].Max);
-					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Enable\")\n", type.Ident.c_str(), UnitTypeVar.VariableNameLookup[j].data(), type.MapDefaultStat.Variables[j].Enable);
-					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Increase\")\n", type.Ident.c_str(), UnitTypeVar.VariableNameLookup[j].data(), type.MapDefaultStat.Variables[j].Increase);
+					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Value\")\n",
+					          type.Ident.c_str(),
+					          UnitTypeVar.VariableNameLookup[j].data(),
+					          type.MapDefaultStat.Variables[j].Value);
+					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Max\")\n",
+					          type.Ident.c_str(),
+					          UnitTypeVar.VariableNameLookup[j].data(),
+					          type.MapDefaultStat.Variables[j].Max);
+					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Enable\")\n",
+					          type.Ident.c_str(),
+					          UnitTypeVar.VariableNameLookup[j].data(),
+					          type.MapDefaultStat.Variables[j].Enable);
+					f->printf("SetMapStat(\"%s\", \"%s\", %d, \"Increase\")\n",
+					          type.Ident.c_str(),
+					          UnitTypeVar.VariableNameLookup[j].data(),
+					          type.MapDefaultStat.Variables[j].Increase);
 				}
 			}
 
 			if (type.MapSound.Selected.Name != type.Sound.Selected.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"selected\")\n", type.Ident.c_str(), type.MapSound.Selected.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"selected\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Selected.Name.c_str());
 			}
 			if (type.MapSound.Acknowledgement.Name != type.Sound.Acknowledgement.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"acknowledge\")\n", type.Ident.c_str(), type.MapSound.Acknowledgement.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"acknowledge\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Acknowledgement.Name.c_str());
 			}
 			if (type.MapSound.Attack.Name != type.Sound.Attack.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"attack\")\n", type.Ident.c_str(), type.MapSound.Attack.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"attack\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Attack.Name.c_str());
 			}
 			if (type.MapSound.Build.Name != type.Sound.Build.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"build\")\n", type.Ident.c_str(), type.MapSound.Build.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"build\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Build.Name.c_str());
 			}
 			if (type.MapSound.Ready.Name != type.Sound.Ready.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"ready\")\n", type.Ident.c_str(), type.MapSound.Ready.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"ready\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Ready.Name.c_str());
 			}
 			if (type.MapSound.Repair.Name != type.Sound.Repair.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"repair\")\n", type.Ident.c_str(), type.MapSound.Repair.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"repair\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Repair.Name.c_str());
 			}
 			for (unsigned int j = 0; j < MaxCosts; ++j) {
 				if (type.MapSound.Harvest[j].Name != type.Sound.Harvest[j].Name) {
-					f->printf("SetMapSound(\"%s\", \"%s\", \"harvest\", \"%s\")\n", type.Ident.c_str(), type.MapSound.Harvest[j].Name.c_str(), DefaultResourceNames[j].c_str());
+					f->printf("SetMapSound(\"%s\", \"%s\", \"harvest\", \"%s\")\n",
+					          type.Ident.c_str(),
+					          type.MapSound.Harvest[j].Name.c_str(),
+					          DefaultResourceNames[j].c_str());
 				}
 			}
 			if (type.MapSound.Help.Name != type.Sound.Help.Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"help\")\n", type.Ident.c_str(), type.MapSound.Help.Name.c_str());
+				f->printf("SetMapSound(\"%s\", \"%s\", \"help\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Help.Name.c_str());
 			}
-			if (type.MapSound.Dead[ANIMATIONS_DEATHTYPES].Name != type.Sound.Dead[ANIMATIONS_DEATHTYPES].Name) {
-				f->printf("SetMapSound(\"%s\", \"%s\", \"dead\")\n", type.Ident.c_str(), type.MapSound.Dead[ANIMATIONS_DEATHTYPES].Name.c_str());
+			if (type.MapSound.Dead[ANIMATIONS_DEATHTYPES].Name
+			    != type.Sound.Dead[ANIMATIONS_DEATHTYPES].Name) {
+				f->printf("SetMapSound(\"%s\", \"%s\", \"dead\")\n",
+				          type.Ident.c_str(),
+				          type.MapSound.Dead[ANIMATIONS_DEATHTYPES].Name.c_str());
 			}
 			int death;
 			for (death = 0; death < ANIMATIONS_DEATHTYPES; ++death) {
 				if (type.MapSound.Dead[death].Name != type.Sound.Dead[death].Name) {
-					f->printf("SetMapSound(\"%s\", \"%s\", \"dead\", \"%s\")\n", type.Ident.c_str(), type.MapSound.Dead[death].Name.c_str(), ExtraDeathTypes[death].c_str());
+					f->printf("SetMapSound(\"%s\", \"%s\", \"dead\", \"%s\")\n",
+					          type.Ident.c_str(),
+					          type.MapSound.Dead[death].Name.c_str(),
+					          ExtraDeathTypes[death].c_str());
 				}
 			}
 		}
@@ -455,9 +500,10 @@ static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain,
 			const int y = unit.tilePos.y + offset.y;
 			if (x < newSize.x && y < newSize.y) {
 				f->printf("unit = CreateUnit(\"%s\", %d, {%d, %d})\n",
-						  unit.Type->Ident.c_str(),
-						  unit.Player->Index,
-						  x, y);
+				          unit.Type->Ident.c_str(),
+				          unit.Player->Index,
+				          x,
+				          y);
 				if (unit.Type->GivesResource) {
 					f->printf("SetResourcesHeld(unit, %d)\n", unit.ResourcesHeld);
 				}
@@ -470,27 +516,27 @@ static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain,
 			}
 		}
 		f->printf("\n\n");
-		for (const CUnit* unitPtr : teleporters) {
+		for (const CUnit *unitPtr : teleporters) {
 			const CUnit &unit = *unitPtr;
 			f->printf("SetTeleportDestination(%d, %d)\n", UnitNumber(unit), UnitNumber(*unit.Goal));
 		}
 		f->printf("\n\n");
 
 		f->printf("-- postamble\n");
-		f->printf("if CanAccessFile(__file__ .. \".postamble\") then Load(__file__ .. \".postamble\", Editor.Running == 0) end\n\n");
+		f->printf("if CanAccessFile(__file__ .. \".postamble\") then Load(__file__ .. "
+		          "\".postamble\", Editor.Running == 0) end\n\n");
 		if (!Map.Info.Postamble.empty()) {
-			std::unique_ptr<FileWriter> postamble = CreateFileWriter(mapSetup.string() + ".postamble");
+			std::unique_ptr<FileWriter> postamble =
+				CreateFileWriter(mapSetup.string() + ".postamble");
 			postamble->write(Map.Info.Postamble);
 		}
-
-	} catch (const FileException &) {
+	}
+	catch (const FileException &) {
 		ErrorPrint("Can't save map setup: '%s'\n", mapSetup.u8string().c_str());
 		return false;
 	}
 	return true;
 }
-
-
 
 /**
 **  Save a Stratagus map.
@@ -499,7 +545,8 @@ static bool WriteMapSetup(const fs::path &mapSetup, CMap &map, int writeTerrain,
 **  @param map       map to save
 **  @param writeTerrain   write the tiles map in the .sms
 */
-bool SaveStratagusMap(const fs::path &mapName, CMap &map, int writeTerrain, Vec2i newSize, Vec2i offset)
+bool SaveStratagusMap(
+	const fs::path &mapName, CMap &map, int writeTerrain, Vec2i newSize, Vec2i offset)
 {
 	if (!map.Info.MapWidth || !map.Info.MapHeight) {
 		ErrorPrint("'%s': invalid Stratagus map\n", mapName.u8string().c_str());
@@ -591,7 +638,8 @@ bool GetGamePaused()
 void SetGameSpeed(int speed)
 {
 	if (GameCycle == 0 || FastForwardCycle < GameCycle) {
-		CyclesPerSecond = (static_cast<double>(speed) / 100) * CYCLES_PER_SECOND + static_cast<double>(CYCLES_PER_SECOND) / 3;
+		CyclesPerSecond = (static_cast<double>(speed) / 100) * CYCLES_PER_SECOND
+		                + static_cast<double>(CYCLES_PER_SECOND) / 3;
 		SetVideoSync();
 	}
 }
@@ -603,7 +651,9 @@ void SetGameSpeed(int speed)
 */
 int GetGameSpeed()
 {
-	return ((static_cast<double>(CyclesPerSecond) - static_cast<double>(CYCLES_PER_SECOND) / 3) / CYCLES_PER_SECOND) * 100;
+	return ((static_cast<double>(CyclesPerSecond) - static_cast<double>(CYCLES_PER_SECOND) / 3)
+	        / CYCLES_PER_SECOND)
+	     * 100;
 }
 
 /*----------------------------------------------------------------------------
@@ -681,11 +731,13 @@ static void GameTypeLeftVsRight()
 static void GameTypeManVsMachine()
 {
 	for (int i = 0; i < PlayerMax - 1; ++i) {
-		if (Players[i].Type != PlayerTypes::PlayerPerson && Players[i].Type != PlayerTypes::PlayerComputer) {
+		if (Players[i].Type != PlayerTypes::PlayerPerson
+		    && Players[i].Type != PlayerTypes::PlayerComputer) {
 			continue;
 		}
 		for (int j = i + 1; j < PlayerMax - 1; ++j) {
-			if (Players[j].Type != PlayerTypes::PlayerPerson && Players[j].Type != PlayerTypes::PlayerComputer) {
+			if (Players[j].Type != PlayerTypes::PlayerPerson
+			    && Players[j].Type != PlayerTypes::PlayerComputer) {
 				continue;
 			}
 			if (Players[i].Type == Players[j].Type) {
@@ -707,7 +759,8 @@ static void GameTypeManVsMachine()
 static void GameTypeManTeamVsMachine()
 {
 	for (int i = 0; i < PlayerMax - 1; ++i) {
-		if (Players[i].Type != PlayerTypes::PlayerPerson && Players[i].Type != PlayerTypes::PlayerComputer) {
+		if (Players[i].Type != PlayerTypes::PlayerPerson
+		    && Players[i].Type != PlayerTypes::PlayerComputer) {
 			continue;
 		}
 		for (int j = 0; j < PlayerMax - 1; ++j) {
@@ -906,26 +959,13 @@ void CreateGame(const fs::path &filename, CMap *map)
 	// FIXME: implement more game types
 	if (GameSettings.GameType != GameTypes::SettingsGameTypeMapDefault) {
 		switch (GameSettings.GameType) {
-			case GameTypes::SettingsGameTypeMelee:
-				break;
-			case GameTypes::SettingsGameTypeFreeForAll:
-				GameTypeFreeForAll();
-				break;
-			case GameTypes::SettingsGameTypeTopVsBottom:
-				GameTypeTopVsBottom();
-				break;
-			case GameTypes::SettingsGameTypeLeftVsRight:
-				GameTypeLeftVsRight();
-				break;
-			case GameTypes::SettingsGameTypeManVsMachine:
-				GameTypeManVsMachine();
-				break;
-			case GameTypes::SettingsGameTypeManTeamVsMachine:
-				GameTypeManTeamVsMachine();
-				break;
-			case GameTypes::SettingsGameTypeMachineVsMachine:
-				GameTypeMachineVsMachine();
-				break;
+			case GameTypes::SettingsGameTypeMelee: break;
+			case GameTypes::SettingsGameTypeFreeForAll: GameTypeFreeForAll(); break;
+			case GameTypes::SettingsGameTypeTopVsBottom: GameTypeTopVsBottom(); break;
+			case GameTypes::SettingsGameTypeLeftVsRight: GameTypeLeftVsRight(); break;
+			case GameTypes::SettingsGameTypeManVsMachine: GameTypeManVsMachine(); break;
+			case GameTypes::SettingsGameTypeManTeamVsMachine: GameTypeManTeamVsMachine(); break;
+			case GameTypes::SettingsGameTypeMachineVsMachine: GameTypeMachineVsMachine(); break;
 			case GameTypes::SettingsGameTypeMachineVsMachineTraining:
 				GameTypeMachineVsMachineTraining();
 				break;
@@ -947,8 +987,7 @@ void CreateGame(const fs::path &filename, CMap *map)
 			case GameTypes::SettingsGameTypeTeamCaptureTheFlag:
 				break;
 #endif
-            default:
-				break;
+			default: break;
 		}
 	}
 
@@ -1180,6 +1219,24 @@ static int CclGetGodMode(lua_State *l)
 	return 1;
 }
 
+static int CclSetFastForwardCycle(lua_State *l)
+{
+	LuaCheckArgs(l, 1);
+	if (IsNetworkGame()) {
+		LuaError(l, "SetFastForwardCycle is only available for offline games");
+	}
+	if (lua_type(l, 1) != LUA_TNUMBER) {
+		LuaError(l, "SetFastForwardCycle expects a nonnegative integral cycle");
+	}
+	const lua_Number cycle = lua_tonumber(l, 1);
+	if (!std::isfinite(cycle) || std::trunc(cycle) != cycle || cycle < 0
+	    || cycle >= std::ldexp(lua_Number{1}, std::numeric_limits<unsigned long>::digits)) {
+		LuaError(l, "SetFastForwardCycle expects a nonnegative integral cycle in range");
+	}
+	FastForwardCycle = static_cast<unsigned long>(cycle);
+	return 0;
+}
+
 /**
 **  Set resource harvesting speed (deprecated).
 **
@@ -1314,7 +1371,8 @@ static int CclSetSpeeds(lua_State *l)
 			Players[i].SpeedResourcesHarvest[j] = speed;
 			Players[i].SpeedResourcesReturn[j] = speed;
 		}
-		Players[i].SpeedBuild = Players[i].SpeedTrain = Players[i].SpeedUpgrade = Players[i].SpeedResearch = speed;
+		Players[i].SpeedBuild = Players[i].SpeedTrain = Players[i].SpeedUpgrade =
+			Players[i].SpeedResearch = speed;
 	}
 
 	lua_pushnumber(l, speed);
@@ -1544,6 +1602,7 @@ void LuaRegisterModules()
 	lua_register(Lua, "SetGodMode", CclSetGodMode);
 	lua_register(Lua, "GetGodMode", CclGetGodMode);
 
+	lua_register(Lua, "SetFastForwardCycle", CclSetFastForwardCycle);
 	lua_register(Lua, "SetSpeedResourcesHarvest", CclSetSpeedResourcesHarvest);
 	lua_register(Lua, "SetSpeedResourcesReturn", CclSetSpeedResourcesReturn);
 	lua_register(Lua, "SetSpeedBuild", CclSetSpeedBuild);
@@ -1596,6 +1655,5 @@ void LuaRegisterModules()
 	VideoCclRegister();
 	OnlineServiceCclRegister();
 }
-
 
 //@}

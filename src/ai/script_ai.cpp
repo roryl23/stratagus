@@ -50,6 +50,7 @@
 #include "unittype.h"
 #include "upgrade.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -2711,6 +2712,65 @@ static int CclAiProcessorCancel(lua_State *l)
 	return 0;
 }
 
+// The synchronous adapter alone may wait. Poll still performs exactly one
+// non-blocking operation; here a completed phase or partial transfer proceeds
+// immediately, while a would-block waits for the socket's next relevant event.
+static AiProcessorResult
+AiProcessorSynchronousProgress(AiProcessorConnection &connection,
+                               uint32_t &selected,
+                               const std::chrono::steady_clock::time_point deadline =
+                                   std::chrono::steady_clock::time_point::max())
+{
+	const AiProcessorPhase previousPhase = connection.phase;
+	const size_t previousOffset = previousPhase == AiProcessorPhase::Setup ? connection.setupOffset
+	                            : previousPhase == AiProcessorPhase::Writing
+	                                ? connection.writeOffset
+	                                : connection.readOffset;
+	const AiProcessorResult result = AiProcessorProgress(connection, selected);
+	if (result == AiProcessorResult::Ready || connection.phase != previousPhase
+	    || (connection.phase == AiProcessorPhase::Setup && connection.setupOffset != previousOffset)
+	    || (connection.phase == AiProcessorPhase::Writing
+	        && connection.writeOffset != previousOffset)
+	    || (connection.phase == AiProcessorPhase::Reading
+	        && connection.readOffset != previousOffset)) {
+		return result;
+	}
+
+	const auto now = std::chrono::steady_clock::now();
+	auto waitUntil = deadline;
+	if (connection.phase == AiProcessorPhase::Disconnected) {
+		// No descriptor exists during DNS resolution or reconnect backoff.
+		waitUntil = std::min(waitUntil,
+		                     connection.retryAfter > now ? connection.retryAfter
+		                                                 : now + std::chrono::milliseconds(10));
+	} else {
+		waitUntil = std::min(waitUntil,
+		                     connection.phaseStarted
+		                         + (connection.phase == AiProcessorPhase::Reading
+		                                ? AiProcessorResponseTimeout
+		                                : AiProcessorConnectTimeout));
+	}
+	if (waitUntil <= now) {
+		return result;
+	}
+	const auto remaining = waitUntil - now;
+	const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+	if (connection.phase == AiProcessorPhase::Disconnected || milliseconds.count() == 0) {
+		std::this_thread::sleep_for(remaining);
+	} else {
+		const int ready =
+			connection.phase == AiProcessorPhase::Reading
+				? connection.socket->HasDataToRead(static_cast<int>(milliseconds.count()))
+				: connection.socket->HasSpaceToWrite(static_cast<int>(milliseconds.count()));
+		if (ready < 0) {
+			// Do not spin if select fails before Progress can diagnose the socket.
+			std::this_thread::sleep_for(std::min(
+				remaining, std::chrono::steady_clock::duration(std::chrono::milliseconds(10))));
+		}
+	}
+	return result;
+}
+
 /**
  * AiProcessorStep is the synchronous training/evaluation adapter over the
  * same non-blocking codec and connection, retrying an identical sequence on
@@ -2733,7 +2793,7 @@ static int CclAiProcessorStep(lua_State *l)
 	AiProcessorStart(*connection, std::move(frame), false);
 	for (;;) {
 		uint32_t selected = 0;
-		const AiProcessorResult result = AiProcessorProgress(*connection, selected);
+		const AiProcessorResult result = AiProcessorSynchronousProgress(*connection, selected);
 		if (result == AiProcessorResult::Ready) {
 			const uint32_t sequence = connection->sequence;
 			++connection->sequence;
@@ -2741,11 +2801,6 @@ static int CclAiProcessorStep(lua_State *l)
 			lua_pushnumber(l, selected + 1);
 			lua_pushnumber(l, sequence);
 			return 2;
-		}
-		if (result == AiProcessorResult::Failed) {
-			std::this_thread::sleep_for(AiProcessorReconnectDelay);
-		} else {
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
 	}
 }
@@ -2769,14 +2824,12 @@ static int CclAiProcessorEnd(lua_State *l)
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (std::chrono::steady_clock::now() < deadline) {
 			uint32_t unused = 0;
-			const AiProcessorResult result = AiProcessorProgress(*connection, unused);
+			const AiProcessorResult result =
+				AiProcessorSynchronousProgress(*connection, unused, deadline);
 			if (result == AiProcessorResult::Ready) {
 				delivered = true;
 				break;
 			}
-			std::this_thread::sleep_for(result == AiProcessorResult::Failed
-			                                ? AiProcessorReconnectDelay
-			                                : std::chrono::milliseconds(10));
 		}
 	} else if (lua_gettop(l) != 1) {
 		LuaError(l, "AiProcessorEnd expects a handle or a handle, reward and state");
