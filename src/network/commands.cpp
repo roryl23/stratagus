@@ -144,8 +144,10 @@ static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlay
 				return false;
 			}
 			const CUnitType &type = *types[command.target];
-			if (!actor->IsIdle() || !CheckDependByType(player, type)
-			    || !AiBatchCanAffordType(player, type)) {
+			if ((!actor->IsIdle()
+			     && (command.verb != AiCommandVerb::BuildAt
+			         || actor->CurrentAction() != UnitAction::Resource))
+			    || !CheckDependByType(player, type) || !AiBatchCanAffordType(player, type)) {
 				return false;
 			}
 			if (command.verb == AiCommandVerb::Train) {

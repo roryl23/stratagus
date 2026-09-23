@@ -33,9 +33,6 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-#include "unit.h"
-
 #include "actions.h"
 #include "animation.h"
 #include "commands.h"
@@ -48,7 +45,9 @@
 #include "player.h"
 #include "script.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "trigger.h"
+#include "unit.h"
 #include "unit_find.h"
 #include "unit_manager.h"
 #include "unittype.h"
@@ -71,8 +70,9 @@ static void WarnLegacySaveField(const char *field)
 {
 	static std::set<std::string> warned;
 	if (warned.insert(field).second) {
-		ErrorPrint("Warning: legacy savegame field '%s' found; loading with compatibility handling\n",
-		           field);
+		ErrorPrint(
+			"Warning: legacy savegame field '%s' found; loading with compatibility handling\n",
+			field);
 	}
 }
 
@@ -199,7 +199,6 @@ CUnit *CclGetUnitFromRef(lua_State *l)
 	return &UnitManager->GetSlotUnit(slot);
 }
 
-
 bool COrder::ParseGenericData(lua_State *l, int &j, std::string_view value)
 {
 	if (value == "finished") {
@@ -214,8 +213,6 @@ bool COrder::ParseGenericData(lua_State *l, int &j, std::string_view value)
 	}
 	return true;
 }
-
-
 
 void PathFinderInput::Load(lua_State *l)
 {
@@ -251,7 +248,6 @@ void PathFinderInput::Load(lua_State *l)
 	}
 }
 
-
 void PathFinderOutput::Load(lua_State *l)
 {
 	if (!lua_istable(l, -1)) {
@@ -281,8 +277,7 @@ void PathFinderOutput::Load(lua_State *l)
 				LuaError(l, "incorrect argument _");
 			}
 			const int subargs = lua_rawlen(l, -1);
-			if (subargs <= PathFinderOutput::MAX_PATH_LENGTH)
-			{
+			if (subargs <= PathFinderOutput::MAX_PATH_LENGTH) {
 				for (int k = 0; k < subargs; ++k) {
 					this->Path[k] = LuaToNumber(l, -1, k + 1);
 				}
@@ -405,7 +400,8 @@ static int CclUnit(lua_State *l)
 			MapSight(*player, *unit, pos, w, h, unit->CurrentSightRange, MapMarkTileSight);
 			// Detectcloak works in container
 			if (unit->Type->BoolFlag[DETECTCLOAK_INDEX].value) {
-				MapSight(*player, *unit, pos, w, h, unit->CurrentSightRange, MapMarkTileDetectCloak);
+				MapSight(
+					*player, *unit, pos, w, h, unit->CurrentSightRange, MapMarkTileDetectCloak);
 			}
 			// Radar(Jammer) not.
 			lua_pop(l, 1);
@@ -422,11 +418,11 @@ static int CclUnit(lua_State *l)
 			unit->Stats = &type->Stats[LuaToNumber(l, 2, j + 1)];
 		} else if (value == "pixel") {
 			lua_rawgeti(l, 2, j + 1);
-			CclGetPos(l, &unit->IX , &unit->IY, -1);
+			CclGetPos(l, &unit->IX, &unit->IY, -1);
 			lua_pop(l, 1);
 		} else if (value == "seen-pixel") {
 			lua_rawgeti(l, 2, j + 1);
-			CclGetPos(l, &unit->Seen.IX , &unit->Seen.IY, -1);
+			CclGetPos(l, &unit->Seen.IX, &unit->Seen.IY, -1);
 			lua_pop(l, 1);
 		} else if (value == "frame") {
 			unit->Frame = LuaToNumber(l, 2, j + 1);
@@ -654,7 +650,7 @@ static int CclUnit(lua_State *l)
 		} else if (value == "ShadowFly") {
 			WarnLegacySaveField("ShadowFly");
 		} else {
-			const int index = UnitTypeVar.VariableNameLookup[value];// User variables
+			const int index = UnitTypeVar.VariableNameLookup[value]; // User variables
 			if (index != -1) { // Valid index
 				lua_rawgeti(l, 2, j + 1);
 				DefineVariableField(l, &unit->Variable[index], -1);
@@ -826,7 +822,7 @@ static int CclCreateUnit(lua_State *l)
 		return 0;
 	} else {
 		if (UnitCanBeAt(*unit, ipos)
-			|| (unit->Type->Building && CanBuildUnitType(nullptr, *unit->Type, ipos, 0))) {
+		    || (unit->Type->Building && CanBuildUnitType(nullptr, *unit->Type, ipos, 0))) {
 			unit->Place(ipos);
 		} else {
 			const int heading = SyncRand() % 256;
@@ -1260,7 +1256,7 @@ static int CclGetUnitBoolFlag(lua_State *l)
 	lua_pop(l, 1);
 
 	const std::string_view value = LuaToString(l, 2);
-	int index = UnitTypeVar.BoolFlagNameLookup[value];// User bool flags
+	int index = UnitTypeVar.BoolFlagNameLookup[value]; // User bool flags
 	if (index == -1) {
 		LuaError(l, "Bad bool-flag name '%s'\n", value.data());
 	}
@@ -1307,7 +1303,7 @@ static int CclGetUnitVariable(lua_State *l)
 	if (value == "RegenerationRate") {
 		lua_pushnumber(l, unit->Variable[HP_INDEX].Increase);
 	} else if (value == "RegenerationFrequency") {
-		lua_pushnumber(l, std::max((int)unit->Variable[HP_INDEX].IncreaseFrequency, 1));
+		lua_pushnumber(l, std::max((int) unit->Variable[HP_INDEX].IncreaseFrequency, 1));
 	} else if (value == "Ident") {
 		lua_pushstring(l, unit->Type->Ident.c_str());
 	} else if (value == "ResourcesHeld") {
@@ -1329,7 +1325,7 @@ static int CclGetUnitVariable(lua_State *l)
 			unsigned long time_to_live = unit->TTL - unit->Summoned;
 			Assert(time_to_live > 0);
 			double pcnt = time_lived * 100.0 / time_to_live;
-			int pcnt_i = (int)round(pcnt);
+			int pcnt_i = (int) round(pcnt);
 			lua_pushinteger(l, pcnt_i);
 		} else {
 			lua_pushinteger(l, -1);
@@ -1349,6 +1345,9 @@ static int CclGetUnitVariable(lua_State *l)
 	} else if (value == "Idle") {
 		lua_pushboolean(l, unit->IsIdle());
 		return 1;
+	} else if (value == "Gathering") {
+		lua_pushboolean(l, unit->CurrentAction() == UnitAction::Resource);
+		return 1;
 	} else if (value == "PixelPos") {
 		PixelPos pos = unit->GetMapPixelPosCenter();
 		lua_newtable(l);
@@ -1358,7 +1357,7 @@ static int CclGetUnitVariable(lua_State *l)
 		lua_setfield(l, -2, "y");
 		return 1;
 	} else {
-		int index = UnitTypeVar.VariableNameLookup[value];// User variables
+		int index = UnitTypeVar.VariableNameLookup[value]; // User variables
 		if (index == -1) {
 			if (nargs == 2) {
 				index = UnitTypeVar.BoolFlagNameLookup[value];
@@ -1382,7 +1381,7 @@ static int CclGetUnitVariable(lua_State *l)
 			} else if (type == "Increase") {
 				lua_pushnumber(l, unit->Variable[index].Increase);
 			} else if (type == "IncreaseFrequency") {
-				lua_pushnumber(l, std::max((int)unit->Variable[index].IncreaseFrequency, 1));
+				lua_pushnumber(l, std::max((int) unit->Variable[index].IncreaseFrequency, 1));
 			} else if (type == "Enable") {
 				lua_pushnumber(l, unit->Variable[index].Enable);
 			} else {
@@ -1460,7 +1459,8 @@ static int CclSetUnitVariable(lua_State *l)
 		std::string_view upgrade_ident = LuaToString(l, 3);
 		bool has_upgrade = LuaToBoolean(l, 4);
 		if (CUpgrade::Get(upgrade_ident)) {
-			if (has_upgrade && unit->IndividualUpgrades[CUpgrade::Get(upgrade_ident)->ID] == false) {
+			if (has_upgrade
+			    && unit->IndividualUpgrades[CUpgrade::Get(upgrade_ident)->ID] == false) {
 				IndividualUpgradeAcquire(*unit, CUpgrade::Get(upgrade_ident));
 			} else if (!has_upgrade && unit->IndividualUpgrades[CUpgrade::Get(upgrade_ident)->ID]) {
 				IndividualUpgradeLost(*unit, CUpgrade::Get(upgrade_ident));
@@ -1475,7 +1475,8 @@ static int CclSetUnitVariable(lua_State *l)
 				unit->Player->UnitTypesAiActiveCount[unit->Type->Slot]++;
 			} else {
 				unit->Player->UnitTypesAiActiveCount[unit->Type->Slot]--;
-				if (unit->Player->UnitTypesAiActiveCount[unit->Type->Slot] < 0) { // if unit AI active count is negative, something wrong happened
+				if (unit->Player->UnitTypesAiActiveCount[unit->Type->Slot]
+				    < 0) { // if unit AI active count is negative, something wrong happened
 					LuaError(l,
 					         "Player %d has a negative '%s' AI active count of %d.\n",
 					         unit->Player->Index,
@@ -1486,7 +1487,7 @@ static int CclSetUnitVariable(lua_State *l)
 		}
 		unit->Active = ai_active;
 	} else {
-		const int index = UnitTypeVar.VariableNameLookup[name];// User variables
+		const int index = UnitTypeVar.VariableNameLookup[name]; // User variables
 		if (index == -1) {
 			LuaError(l, "Bad variable name '%s'\n", name.data());
 		}
@@ -1498,7 +1499,8 @@ static int CclSetUnitVariable(lua_State *l)
 		if (stats) { // stat variables
 			const std::string_view type = LuaToString(l, 4);
 			if (type == "Value") {
-				unit->Stats->Variables[index].Value = std::min(unit->Stats->Variables[index].Max, value);
+				unit->Stats->Variables[index].Value =
+					std::min(unit->Stats->Variables[index].Max, value);
 			} else if (type == "Max") {
 				unit->Stats->Variables[index].Max = value;
 			} else if (type == "Increase") {
@@ -1630,8 +1632,7 @@ static int CclEnableSimplifiedAutoTargeting(lua_State *l)
 	if (!IsNetworkGame()) {
 		GameSettings.SimplifiedAutoTargeting = isSimplified;
 	} else {
-		NetworkSendExtendedCommand(ExtendedMessageAutoTargetingDB,
-								   int(isSimplified), 0, 0, 0, 0);
+		NetworkSendExtendedCommand(ExtendedMessageAutoTargetingDB, int(isSimplified), 0, 0, 0, 0);
 	}
 	return 0;
 }
