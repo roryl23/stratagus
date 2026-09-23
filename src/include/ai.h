@@ -46,22 +46,24 @@ class CUpgrade;
 --  Variables
 ----------------------------------------------------------------------------*/
 
-extern int AiSleepCycles;  /// Ai sleeps # cycles
+extern int AiSleepCycles; /// Ai sleeps # cycles
 
 /*----------------------------------------------------------------------------
 --  Functions
 ----------------------------------------------------------------------------*/
+/// True only for players whose orders are controlled by the War1gus AI script.
+extern bool IsWar1gusAi(const CPlayer &player);
 
-extern void AiEachCycle(CPlayer &player);   /// Called each game cycle
-extern void AiEachSecond(CPlayer &player);  /// Called each second
+extern void AiEachCycle(CPlayer &player); /// Called each game cycle
+extern void AiEachSecond(CPlayer &player); /// Called each second
 
-extern void InitAiModule();       /// Init AI global structures
-extern void AiInit(CPlayer &player);   /// Init AI for this player
-extern void CleanAi();            /// Cleanup the AI module
-extern void FreeAi();            /// Free the AI resources
-extern void SaveAi(CFile &file);     /// Save the AI state
+extern void InitAiModule(); /// Init AI global structures
+extern void AiInit(CPlayer &player); /// Init AI for this player
+extern void CleanAi(); /// Cleanup the AI module
+extern void FreeAi(); /// Free the AI resources
+extern void SaveAi(CFile &file); /// Save the AI state
 
-extern void AiCclRegister();      /// Register ccl features
+extern void AiCclRegister(); /// Register ccl features
 
 /// Attack with force at position
 extern void AiAttackWithForceAt(unsigned int force, int x, int y);

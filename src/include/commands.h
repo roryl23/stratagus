@@ -71,7 +71,20 @@ enum class AiCommandVerb : uint8_t
 	Build,
 	Train,
 	CastAuto,
-	Research
+	Research,
+	Patrol,
+	AttackGround,
+	Follow,
+	Board,
+	ReturnGoods,
+	Unload,
+	UpgradeTo,
+	CastUnit,
+	CastSelf,
+	CancelBuild,
+	CancelResearch,
+	CancelUpgradeTo,
+	CancelTraining
 };
 
 struct AiCommandPrimitive

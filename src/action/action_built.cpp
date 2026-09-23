@@ -30,8 +30,10 @@
 
 //@{
 
-#include "stratagus.h"
+// clang-format off
+#include <string> // construct.h needs a complete std::string.
 #include "action/action_built.h"
+// clang-format on
 
 #include "ai.h"
 #include "commands.h"
@@ -42,19 +44,19 @@
 #include "player.h"
 #include "script.h"
 #include "sound.h"
+#include "stratagus.h"
 #include "translate.h"
 #include "unit.h"
 #include "unittype.h"
 
 /// How many resources the player gets back if canceling building
-#define CancelBuildingCostsFactor  75
-
+#define CancelBuildingCostsFactor 75
 
 extern void AiReduceMadeInBuilt(PlayerAi &pai, const CUnitType &type);
 
 /* static */ std::unique_ptr<COrder> COrder::NewActionBuilt(CUnit &builder, CUnit &unit)
 {
-	auto order = std::make_unique < COrder_Built>();
+	auto order = std::make_unique<COrder_Built>();
 
 	// Make sure the building doesn't cancel itself out right away.
 
@@ -69,7 +71,6 @@ extern void AiReduceMadeInBuilt(PlayerAi &pai, const CUnitType &type);
 	}
 	return order;
 }
-
 
 void COrder_Built::Save(CFile &file, const CUnit &unit) const /* override */
 {
@@ -122,14 +123,14 @@ PixelPos COrder_Built::Show(const CViewport &, const PixelPos &lastScreenPos) co
 	return lastScreenPos;
 }
 
-
 static void CancelBuilt(COrder_Built &order, CUnit *unit)
 {
 	Assert(unit == nullptr || unit->CurrentOrder() == &order);
 	CUnit *worker = order.GetWorkerPtr();
 
 	// Drop out unit
-	if (worker != nullptr && worker->CurrentAction() == UnitAction::Build && !worker->CurrentOrder()->Finished) {
+	if (worker != nullptr && worker->CurrentAction() == UnitAction::Build
+	    && !worker->CurrentOrder()->Finished) {
 		worker->ClearAction();
 
 		DropOutOnSide(*worker, LookingW, unit);
@@ -173,11 +174,12 @@ static void Finish(COrder_Built &order, CUnit &unit)
 			DropOutOnSide(*worker, LookingW, &unit);
 
 			// If we can harvest from the new building, do it.
-			if (worker->Type->ResInfo[type.GivesResource]) {
+			if (!IsWar1gusAi(player) && worker->Type->ResInfo[type.GivesResource]) {
 				CommandResource(*worker, unit, EFlushMode::Off);
 			}
 			// If we can return goods to a new depot, do it.
-			if (worker->CurrentResource && worker->ResourcesHeld > 0 && type.CanStore[worker->CurrentResource]) {
+			if (!IsWar1gusAi(player) && worker->CurrentResource && worker->ResourcesHeld > 0
+			    && type.CanStore[worker->CurrentResource]) {
 				CommandReturnGoods(*worker, &unit, EFlushMode::Off);
 			}
 		}
@@ -218,7 +220,7 @@ static void Finish(COrder_Built &order, CUnit &unit)
 		UnitLost(unit);
 		UnitClearOrders(unit);
 		unit.Release();
-		return ;
+		return;
 	}
 
 	UpdateForNewUnit(unit, 0);
@@ -267,14 +269,15 @@ void COrder_Built::Execute(CUnit &unit) /* override */
 		DebugPrint("%d: %s canceled.\n", unit.Player->Index, unit.Type->Name.c_str());
 
 		CancelBuilt(*this, &unit);
-		return ;
+		return;
 	}
 
 	const int maxProgress = type.Stats[unit.Player->Index].Costs[TimeCost] * 600;
 
 	// Check if we should make some random noise
 	// IMPORTANT: this is local randomization, do not use the SyncRand function!
-	if (unit.Frame == 0 && unit.Player == ThisPlayer && GameCycle % 150 == 0 && (MyRand() % 3) == 0) {
+	if (unit.Frame == 0 && unit.Player == ThisPlayer && GameCycle % 150 == 0
+	    && (MyRand() % 3) == 0) {
 		PlayUnitSound(unit, EUnitVoice::Building, true);
 	}
 
@@ -299,7 +302,8 @@ void COrder_Built::UpdateUnitVariables(CUnit &unit) const /* override */
 	// This should happen when building unit with several peons
 	// Maybe also with only one.
 	// FIXME : Should be better to fix it in action_{build,repair}.c ?
-	unit.Variable[BUILD_INDEX].Value = std::min(unit.Variable[BUILD_INDEX].Max, unit.Variable[BUILD_INDEX].Value);
+	unit.Variable[BUILD_INDEX].Value =
+		std::min(unit.Variable[BUILD_INDEX].Max, unit.Variable[BUILD_INDEX].Value);
 }
 
 void COrder_Built::FillSeenValues(CUnit &unit) const /* override */
@@ -320,11 +324,10 @@ void COrder_Built::AiUnitKilled(CUnit &unit)
 	AiReduceMadeInBuilt(*unit.Player->Ai, *unit.Type);
 }
 
-
-static std::optional<std::size_t> FindCFramePercent(const std::vector<CConstructionFrame> &cframes, int percent)
+static std::optional<std::size_t> FindCFramePercent(const std::vector<CConstructionFrame> &cframes,
+                                                    int percent)
 {
-	if (cframes.empty())
-	{
+	if (cframes.empty()) {
 		return {};
 	}
 	const auto it =
@@ -341,7 +344,8 @@ static std::optional<std::size_t> FindCFramePercent(const std::vector<CConstruct
 void COrder_Built::UpdateConstructionFrame(CUnit &unit)
 {
 	const CUnitType &type = *unit.Type;
-	const int percent = this->ProgressCounter / (type.Stats[unit.Player->Index].Costs[TimeCost] * 6);
+	const int percent =
+		this->ProgressCounter / (type.Stats[unit.Player->Index].Costs[TimeCost] * 6);
 	const auto index = FindCFramePercent(type.Construction->Frames, percent);
 
 	if (index.has_value() && index.value() != this->Frame) {
@@ -350,7 +354,6 @@ void COrder_Built::UpdateConstructionFrame(CUnit &unit)
 		unit.Frame = (unit.Frame < 0) ? -cframe.Frame - 1 : cframe.Frame;
 	}
 }
-
 
 void COrder_Built::Progress(CUnit &unit, int amount)
 {
@@ -369,14 +372,14 @@ void COrder_Built::ProgressHp(CUnit &unit, int amount)
 	UpdateConstructionFrame(unit);
 }
 
-
 void COrder_Built::Boost(CUnit &building, int amount, int varIndex) const
 {
 	Assert(building.CurrentOrder() == this);
 
 	const int costs = building.Stats->Costs[TimeCost] * 600;
 	const int progress = this->ProgressCounter;
-	const int newProgress = progress + std::max(1, amount * building.Player->SpeedBuild / SPEEDUP_FACTOR);
+	const int newProgress =
+		progress + std::max(1, amount * building.Player->SpeedBuild / SPEEDUP_FACTOR);
 	const int maxValue = building.Variable[varIndex].Max;
 
 	int &currentValue = building.Variable[varIndex].Value;

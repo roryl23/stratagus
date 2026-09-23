@@ -62,6 +62,7 @@
 #include <new>
 #include <system_error>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -2022,6 +2023,110 @@ static int CclAiCanBuildAt(lua_State *l)
 	return AiCommandResult(l, CanBuildUnitType(actor, *type, position, 0).has_value());
 }
 
+static int CclAiUnitOnMap(lua_State *l)
+{
+	if (lua_gettop(l) != 1 || lua_type(l, 1) != LUA_TNUMBER) {
+		return AiCommandResult(l, false);
+	}
+	const lua_Number value = lua_tonumber(l, 1);
+	if (!std::isfinite(value) || std::trunc(value) != value || value < 0
+	    || value > std::numeric_limits<int>::max()) {
+		return AiCommandResult(l, false);
+	}
+	return AiCommandResult(l, AiCommandUnit(static_cast<int>(value)) != nullptr);
+}
+
+static int CclAiActionCatalog(lua_State *l)
+{
+	if (lua_gettop(l) != 1) {
+		LuaError(l, "AiActionCatalog expects a player index");
+	}
+	const int playerIndex = AiCommandInteger(l, 1, "AiActionCatalog player");
+	lua_newtable(l);
+	if (playerIndex < 0 || playerIndex >= NumPlayers) {
+		return 1;
+	}
+
+	std::vector<const CUnitType *> actors;
+	for (const CUnit *unit : Players[playerIndex].GetUnits()) {
+		if (unit && !unit->Released && unit->Type && unit->IsAliveOnMap()) {
+			actors.push_back(unit->Type);
+		}
+	}
+	std::sort(actors.begin(), actors.end(), [](const CUnitType *a, const CUnitType *b) {
+		return a->Ident < b->Ident;
+	});
+	actors.erase(std::unique(actors.begin(), actors.end()), actors.end());
+
+	using Entry = std::tuple<std::string, std::string, std::string>;
+	std::vector<Entry> entries;
+	const auto &unitTypes = getUnitTypes();
+	auto addUnitActions = [&](const std::vector<std::vector<CUnitType *>> &helpers,
+	                          const char *verb) {
+		for (size_t target = 0; target < helpers.size() && target < unitTypes.size()
+		                        && target <= std::numeric_limits<uint16_t>::max();
+		     ++target) {
+			if (!unitTypes[target]
+			    || (verb == std::string_view("build-at") && !unitTypes[target]->Building)
+			    || (verb == std::string_view("train") && unitTypes[target]->Building)) {
+				continue;
+			}
+			for (const CUnitType *producer : helpers[target]) {
+				if (producer && std::find(actors.begin(), actors.end(), producer) != actors.end()) {
+					entries.emplace_back(producer->Ident, verb, unitTypes[target]->Ident);
+				}
+			}
+		}
+	};
+	addUnitActions(AiHelpers.Build(), "build-at");
+	addUnitActions(AiHelpers.Train(), "train");
+	addUnitActions(AiHelpers.Upgrade(), "upgrade-to");
+	auto addResearch = [&](const std::vector<std::vector<CUnitType *>> &helpers) {
+		for (size_t target = 0; target < helpers.size() && target < AllUpgrades.size()
+		                        && target <= std::numeric_limits<uint16_t>::max();
+		     ++target) {
+			if (!AllUpgrades[target]) {
+				continue;
+			}
+			for (const CUnitType *producer : helpers[target]) {
+				if (producer && std::find(actors.begin(), actors.end(), producer) != actors.end()) {
+					entries.emplace_back(producer->Ident, "research", AllUpgrades[target]->Ident);
+				}
+			}
+		}
+	};
+	addResearch(AiHelpers.Research());
+	addResearch(AiHelpers.SingleResearch());
+	for (const CUnitType *actor : actors) {
+		for (size_t slot = 0; slot < actor->CanCastSpell.size() && slot < SpellTypeTable.size()
+		                      && slot <= std::numeric_limits<uint16_t>::max();
+		     ++slot) {
+			if (!actor->CanCastSpell[slot] || !SpellTypeTable[slot]) {
+				continue;
+			}
+			const SpellType &spell = *SpellTypeTable[slot];
+			const char *verb = spell.Target == ETarget::Unit     ? "cast-unit"
+			                 : spell.Target == ETarget::Position ? "cast-position"
+			                                                     : "cast-self";
+			entries.emplace_back(actor->Ident, verb, spell.Ident);
+		}
+	}
+	std::sort(entries.begin(), entries.end());
+	entries.erase(std::unique(entries.begin(), entries.end()), entries.end());
+	int index = 1;
+	for (const auto &[actor, verb, argument] : entries) {
+		lua_createtable(l, 0, 3);
+		lua_pushlstring(l, actor.data(), actor.size());
+		lua_setfield(l, -2, "actor");
+		lua_pushlstring(l, verb.data(), verb.size());
+		lua_setfield(l, -2, "verb");
+		lua_pushlstring(l, argument.data(), argument.size());
+		lua_setfield(l, -2, "argument");
+		lua_rawseti(l, -2, index++);
+	}
+	return 1;
+}
+
 static int CclAiExternalDecisionAuthority(lua_State *l)
 {
 	if (lua_gettop(l) != 0) {
@@ -2070,27 +2175,60 @@ static bool AiBatchParsePrimitive(lua_State *l,
 	lua_getfield(l, tableIndex, "argument");
 	const int argument = lua_gettop(l);
 	bool valid = true;
-	if (verb == "stop" || verb == "stand-ground" || verb == "explore") {
+	if (verb == "stop" || verb == "stand-ground" || verb == "cancel-build"
+	    || verb == "cancel-research" || verb == "cancel-upgrade-to" || verb == "cancel-training") {
 		if (!lua_isnil(l, argument)) {
 			LuaError(l, "AI batch no-argument verb received an argument");
 		}
-		primitive.verb = verb == "stop"         ? AiCommandVerb::Stop
-		               : verb == "stand-ground" ? AiCommandVerb::StandGround
-		                                        : AiCommandVerb::Explore;
-	} else if (verb == "attack" || verb == "resource" || verb == "repair") {
+		primitive.verb = verb == "stop"              ? AiCommandVerb::Stop
+		               : verb == "stand-ground"      ? AiCommandVerb::StandGround
+		               : verb == "cancel-build"      ? AiCommandVerb::CancelBuild
+		               : verb == "cancel-research"   ? AiCommandVerb::CancelResearch
+		               : verb == "cancel-upgrade-to" ? AiCommandVerb::CancelUpgradeTo
+		                                             : AiCommandVerb::CancelTraining;
+	} else if (verb == "attack" || verb == "resource" || verb == "repair" || verb == "follow"
+	           || verb == "board" || verb == "return-goods") {
 		const int target = AiCommandInteger(l, argument, "AI batch target slot");
 		valid = target >= 0 && target <= std::numeric_limits<uint16_t>::max();
 		primitive.target = valid ? static_cast<uint16_t>(target) : 0;
 		primitive.verb = verb == "attack"   ? AiCommandVerb::Attack
 		               : verb == "resource" ? AiCommandVerb::Resource
-		                                    : AiCommandVerb::Repair;
-	} else if (verb == "move" || verb == "resource-location") {
+		               : verb == "repair"   ? AiCommandVerb::Repair
+		               : verb == "follow"   ? AiCommandVerb::Follow
+		               : verb == "board"    ? AiCommandVerb::Board
+		                                    : AiCommandVerb::ReturnGoods;
+	} else if (verb == "move" || verb == "explore" || verb == "patrol" || verb == "attack-ground"
+	           || verb == "resource-location" || verb == "unload") {
 		Vec2i position;
 		valid = AiBatchPosition(l, argument, position);
-		primitive.verb = verb == "move" ? AiCommandVerb::Move : AiCommandVerb::ResourceLocation;
+		primitive.verb = verb == "move"              ? AiCommandVerb::Move
+		               : verb == "explore"           ? AiCommandVerb::Explore
+		               : verb == "patrol"            ? AiCommandVerb::Patrol
+		               : verb == "attack-ground"     ? AiCommandVerb::AttackGround
+		               : verb == "resource-location" ? AiCommandVerb::ResourceLocation
+		                                             : AiCommandVerb::Unload;
 		if (valid) {
 			primitive.x = position.x;
 			primitive.y = position.y;
+		}
+	} else if (verb == "cast-unit") {
+		if (!lua_istable(l, argument)) {
+			LuaError(l, "AI batch cast-unit argument must be {spell = ..., target = ...}");
+		}
+		lua_getfield(l, argument, "spell");
+		if (!lua_isstring(l, -1)) {
+			LuaError(l, "AI batch cast-unit spell must be an identifier");
+		}
+		SpellType *spell = AiCommandSpellType(LuaToString(l, -1));
+		lua_pop(l, 1);
+		const int target =
+			AiCommandTableInteger(l, argument, "target", "AI batch cast-unit target");
+		primitive.verb = AiCommandVerb::CastUnit;
+		valid = spell && spell->Slot >= 0 && spell->Slot <= std::numeric_limits<uint16_t>::max()
+		     && target >= 0 && target <= std::numeric_limits<uint16_t>::max();
+		if (valid) {
+			primitive.target = static_cast<uint16_t>(spell->Slot);
+			primitive.x = static_cast<uint16_t>(target);
 		}
 	} else if (verb == "build" || verb == "build-at" || verb == "train") {
 		Vec2i position;
@@ -2119,7 +2257,7 @@ static bool AiBatchParsePrimitive(lua_State *l,
 			primitive.x = position.x;
 			primitive.y = position.y;
 		}
-	} else if (verb == "cast-position" || verb == "cast-auto") {
+	} else if (verb == "cast-position" || verb == "cast-auto" || verb == "cast-self") {
 		SpellType *spell = nullptr;
 		Vec2i position;
 		if (verb == "cast-position") {
@@ -2130,13 +2268,16 @@ static bool AiBatchParsePrimitive(lua_State *l,
 				LuaError(l, "AI batch spell must be a spell identifier");
 			}
 			spell = AiCommandSpellType(LuaToString(l, argument));
-			primitive.verb = AiCommandVerb::CastAuto;
+			primitive.verb =
+				verb == "cast-self" ? AiCommandVerb::CastSelf : AiCommandVerb::CastAuto;
 		}
 		valid = spell && spell->Slot >= 0 && spell->Slot <= std::numeric_limits<uint16_t>::max();
 		if (valid) {
 			primitive.target = static_cast<uint16_t>(spell->Slot);
-			primitive.x = position.x;
-			primitive.y = position.y;
+			if (verb == "cast-position") {
+				primitive.x = position.x;
+				primitive.y = position.y;
+			}
 		}
 	} else if (verb == "research") {
 		if (!lua_isstring(l, argument)) {
@@ -2147,6 +2288,16 @@ static bool AiBatchParsePrimitive(lua_State *l,
 		valid = upgrade && upgrade->ID >= 0 && upgrade->ID <= std::numeric_limits<uint16_t>::max();
 		if (valid) {
 			primitive.target = static_cast<uint16_t>(upgrade->ID);
+		}
+	} else if (verb == "upgrade-to") {
+		if (!lua_isstring(l, argument)) {
+			LuaError(l, "AI batch upgrade-to type must be an identifier");
+		}
+		CUnitType *type = AiCommandUnitType(LuaToString(l, argument));
+		primitive.verb = AiCommandVerb::UpgradeTo;
+		valid = type && type->Slot >= 0 && type->Slot <= std::numeric_limits<uint16_t>::max();
+		if (valid) {
+			primitive.target = static_cast<uint16_t>(type->Slot);
 		}
 	} else {
 		LuaError(l, "unsupported AI batch verb: %s", verb.c_str());
@@ -2200,7 +2351,7 @@ constexpr auto AiProcessorResponseTimeout = std::chrono::seconds(60);
 constexpr size_t AiProcessorHeaderWords = 22;
 constexpr size_t AiProcessorEntityWords = 14;
 constexpr size_t AiProcessorCandidateWords = 12;
-constexpr size_t AiProcessorMaxWords = 65536;
+constexpr size_t AiProcessorMaxWords = 1'048'576;
 constexpr uint32_t AiProcessorMaxCandidates = 512;
 constexpr char AiProcessorHandleType[] = "War1gusAiProcessorConnection";
 
@@ -2526,7 +2677,8 @@ AiProcessorMakeFrame(lua_State *l, const AiProcessorConnection &connection, cons
 	const uint32_t entityCount = AiProcessorStateCount(l, 3, 11, "AI processor state entity count");
 	const uint32_t stateCandidateCount =
 		AiProcessorStateCount(l, 3, 12, "AI processor state candidate count");
-	if (entityCount > (AiProcessorMaxWords - AiProcessorHeaderWords) / AiProcessorEntityWords) {
+	if (entityCount > std::numeric_limits<uint16_t>::max()
+	    || entityCount > (AiProcessorMaxWords - AiProcessorHeaderWords) / AiProcessorEntityWords) {
 		LuaError(l, "AI processor state entity count exceeds the state size limit");
 	}
 	if (prefix == 'S') {
@@ -2892,6 +3044,8 @@ void AiCclRegister()
 	lua_register(Lua, "AiExternalDecisionAuthority", CclAiExternalDecisionAuthority);
 	lua_register(Lua, "AiPublishCommandBatch", CclAiPublishCommandBatch);
 	lua_register(Lua, "AiCanBuildAt", CclAiCanBuildAt);
+	lua_register(Lua, "AiActionCatalog", CclAiActionCatalog);
+	lua_register(Lua, "AiUnitOnMap", CclAiUnitOnMap);
 	luaL_newmetatable(Lua, AiProcessorHandleType);
 	lua_pushcfunction(Lua, CclAiProcessorGc);
 	lua_setfield(Lua, -2, "__gc");

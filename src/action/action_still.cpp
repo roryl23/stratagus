@@ -33,10 +33,9 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "action/action_still.h"
 
+#include "ai.h"
 #include "animation.h"
 #include "commands.h"
 #include "iolib.h"
@@ -46,6 +45,7 @@
 #include "script.h"
 #include "settings.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "tileset.h"
 #include "unit.h"
 #include "unit_find.h"
@@ -54,7 +54,8 @@
 
 #include <set>
 
-enum {
+enum
+{
 	SUB_STILL_STANDBY = 0,
 	SUB_STILL_ATTACK
 };
@@ -62,8 +63,8 @@ enum {
 static bool CheckInvalidAutoCastVectors(const CUnit &unit)
 {
 	return ((unit.AutoCastSpell.empty() && unit.Type->CanCastSpell.empty())
-			|| (!unit.AutoCastSpell.empty() && !unit.Type->CanCastSpell.empty()
-				&& unit.AutoCastSpell.size() == unit.Type->CanCastSpell.size()));
+	        || (!unit.AutoCastSpell.empty() && !unit.Type->CanCastSpell.empty()
+	            && unit.AutoCastSpell.size() == unit.Type->CanCastSpell.size()));
 }
 
 static void WarnInvalidAutoCastVectors(const CUnit &unit, const char *context)
@@ -73,13 +74,14 @@ static void WarnInvalidAutoCastVectors(const CUnit &unit, const char *context)
 	if (!warned.insert(key).second) {
 		return;
 	}
-	ErrorPrint("Warning: unit type '%s' has inconsistent spell vectors in %s "
-	           "(CanCastSpell=%zu, AutoCastSpell=%zu, spells=%zu); ignoring invalid autocast state\n",
-	           unit.Type->Ident.c_str(),
-	           context,
-	           unit.Type->CanCastSpell.size(),
-	           unit.AutoCastSpell.size(),
-	           SpellTypeTable.size());
+	ErrorPrint(
+		"Warning: unit type '%s' has inconsistent spell vectors in %s "
+		"(CanCastSpell=%zu, AutoCastSpell=%zu, spells=%zu); ignoring invalid autocast state\n",
+		unit.Type->Ident.c_str(),
+		context,
+		unit.Type->CanCastSpell.size(),
+		unit.AutoCastSpell.size(),
+		SpellTypeTable.size());
 }
 
 /* static */ std::unique_ptr<COrder> COrder::NewActionStandGround()
@@ -91,7 +93,6 @@ static void WarnInvalidAutoCastVectors(const CUnit &unit, const char *context)
 {
 	return std::make_unique<COrder_Still>(false);
 }
-
 
 void COrder_Still::Save(CFile &file, const CUnit &unit) const /* override */
 {
@@ -109,7 +110,10 @@ void COrder_Still::Save(CFile &file, const CUnit &unit) const /* override */
 	file.printf("}");
 }
 
-bool COrder_Still::ParseSpecificData(lua_State *l, int &j, std::string_view value, const CUnit &unit)
+bool COrder_Still::ParseSpecificData(lua_State *l,
+                                     int &j,
+                                     std::string_view value,
+                                     const CUnit &unit)
 {
 	if (value == "state") {
 		++j;
@@ -143,18 +147,19 @@ public:
 	bool operator()(const CUnit *unit) const
 	{
 		return unit->IsVisibleAsGoal(*attacker->Player)
-			   && IsDistanceCorrect(attacker->MapDistanceTo(*unit));
+		    && IsDistanceCorrect(attacker->MapDistanceTo(*unit));
 	}
+
 private:
 	bool IsDistanceCorrect(int distance) const
 	{
 		return attacker->Type->MinAttackRange < distance
-			   && distance <= attacker->Stats->Variables[ATTACKRANGE_INDEX].Max;
+		    && distance <= attacker->Stats->Variables[ATTACKRANGE_INDEX].Max;
 	}
+
 private:
 	const CUnit *attacker;
 };
-
 
 void COrder_Still::OnAnimationAttack(CUnit &unit) /* override */
 {
@@ -170,7 +175,6 @@ void COrder_Still::OnAnimationAttack(CUnit &unit) /* override */
 	FireMissile(unit, goal, goal->tilePos);
 	UnHideUnit(unit);
 }
-
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -200,7 +204,8 @@ static bool MoveRandomly(CUnit &unit)
 		auto w = unit.Type->PersonalSpaceWidth;
 		auto h = unit.Type->PersonalSpaceHeight;
 		if (w || h) {
-			std::vector<CUnit *> around = SelectAroundUnit(unit, (w + h) / 2, IsSameMovementType(unit));
+			std::vector<CUnit *> around =
+				SelectAroundUnit(unit, (w + h) / 2, IsSameMovementType(unit));
 			Vec2i vec(0, 0);
 			for (auto u : around) {
 				if (u != &unit) {
@@ -208,7 +213,9 @@ static bool MoveRandomly(CUnit &unit)
 				}
 			}
 			if (vec.x || vec.y) {
-				auto newPos = pos + Vec2i(std::clamp(vec.x, (short)-1, (short)1), std::clamp(vec.y, (short)-1, (short)1));
+				auto newPos = pos
+				            + Vec2i(std::clamp(vec.x, (short) -1, (short) 1),
+				                    std::clamp(vec.y, (short) -1, (short) 1));
 				Map.Clamp(newPos);
 				if (newPos.x || newPos.y) {
 					CommandMove(unit, newPos, EFlushMode::On);
@@ -218,6 +225,9 @@ static bool MoveRandomly(CUnit &unit)
 		}
 		return false;
 	}
+	if (IsWar1gusAi(*unit.Player)) {
+		return false; // Packing adjustment above is not a discretionary wander.
+	}
 	if ((SyncRand() % 100) > unit.Type->RandomMovementProbability) {
 		return false;
 	}
@@ -225,8 +235,10 @@ static bool MoveRandomly(CUnit &unit)
 	// pick random location
 	Vec2i pos = unit.tilePos;
 
-	pos.x += SyncRand(unit.Type->RandomMovementDistance * 2 + 1) - unit.Type->RandomMovementDistance;
-	pos.y += SyncRand(unit.Type->RandomMovementDistance * 2 + 1) - unit.Type->RandomMovementDistance;
+	pos.x +=
+		SyncRand(unit.Type->RandomMovementDistance * 2 + 1) - unit.Type->RandomMovementDistance;
+	pos.y +=
+		SyncRand(unit.Type->RandomMovementDistance * 2 + 1) - unit.Type->RandomMovementDistance;
 
 	// restrict to map
 	Map.Clamp(pos);
@@ -251,16 +263,20 @@ static bool MoveRandomly(CUnit &unit)
 */
 bool AutoCast(CUnit &unit)
 {
+	if (IsWar1gusAi(*unit.Player)) {
+		return false;
+	}
 	if (CheckInvalidAutoCastVectors(unit)) {
 		WarnInvalidAutoCastVectors(unit, "AutoCast");
 	}
-	if (!unit.Type->CanCastSpell.empty() && !unit.AutoCastSpell.empty() && !unit.Removed) { // Removed units can't cast any spells, from bunker)
-		const size_t spellCount = std::min({SpellTypeTable.size(), unit.Type->CanCastSpell.size(), unit.AutoCastSpell.size()});
+	if (!unit.Type->CanCastSpell.empty() && !unit.AutoCastSpell.empty()
+	    && !unit.Removed) { // Removed units can't cast any spells, from bunker)
+		const size_t spellCount = std::min(
+			{SpellTypeTable.size(), unit.Type->CanCastSpell.size(), unit.AutoCastSpell.size()});
 		for (size_t i = 0; i < spellCount; ++i) {
-			if (unit.AutoCastSpell[i]
-				&& unit.Type->CanCastSpell[i]
-				&& (SpellTypeTable[i]->AutoCast || SpellTypeTable[i]->AICast)
-				&& AutoCastSpell(unit, *SpellTypeTable[i])) {
+			if (unit.AutoCastSpell[i] && unit.Type->CanCastSpell[i]
+			    && (SpellTypeTable[i]->AutoCast || SpellTypeTable[i]->AICast)
+			    && AutoCastSpell(unit, *SpellTypeTable[i])) {
 				return true;
 			}
 		}
@@ -274,15 +290,14 @@ public:
 	explicit IsAReparableUnitBy(const CUnit &_worker) : worker(&_worker) {}
 	bool operator()(CUnit *unit) const
 	{
-		return (unit->IsTeamed(*worker)
-				&& unit->Type->RepairHP
-				&& unit->Variable[HP_INDEX].Value < unit->Variable[HP_INDEX].Max
-				&& unit->IsVisibleAsGoal(*worker->Player));
+		return (unit->IsTeamed(*worker) && unit->Type->RepairHP
+		        && unit->Variable[HP_INDEX].Value < unit->Variable[HP_INDEX].Max
+		        && unit->IsVisibleAsGoal(*worker->Player));
 	}
+
 private:
 	const CUnit *worker;
 };
-
 
 /**
 **  Try to find a repairable unit around and return it.
@@ -308,6 +323,9 @@ static CUnit *UnitToRepairInRange(const CUnit &unit, int range)
 */
 bool AutoRepair(CUnit &unit)
 {
+	if (IsWar1gusAi(*unit.Player)) {
+		return false;
+	}
 	const int repairRange = unit.Type->DefaultStat.Variables[AUTOREPAIRRANGE_INDEX].Value;
 
 	if (unit.AutoRepair == false || repairRange == 0) {
@@ -334,6 +352,9 @@ bool AutoRepair(CUnit &unit)
 
 bool COrder_Still::AutoAttackStand(CUnit &unit)
 {
+	if (IsWar1gusAi(*unit.Player)) {
+		return false;
+	}
 	if (unit.Type->CanAttack == false) {
 		return false;
 	}
@@ -354,30 +375,38 @@ bool COrder_Still::AutoAttackStand(CUnit &unit)
 	// If unit is removed, use containers x and y
 	const CUnit *firstContainer = unit.Container ? unit.Container : &unit;
 	const int dist = firstContainer->MapDistanceTo(*autoAttackUnit);
-	if (dist > unit.Stats->Variables[ATTACKRANGE_INDEX].Max	|| dist < unit.Type->MinAttackRange) {
+	if (dist > unit.Stats->Variables[ATTACKRANGE_INDEX].Max || dist < unit.Type->MinAttackRange) {
 		return false;
 	}
-	if (GameSettings.Inside && CheckObstaclesBetweenTiles(unit.tilePos, autoAttackUnit->tilePos, MapFieldRocks | MapFieldForest) == false) {
+	if (GameSettings.Inside
+	    && CheckObstaclesBetweenTiles(
+			   unit.tilePos, autoAttackUnit->tilePos, MapFieldRocks | MapFieldForest)
+	           == false) {
 		return false;
 	}
 	this->State = SUB_STILL_ATTACK; // Mark attacking.
 	this->SetGoal(autoAttackUnit);
-	UnitHeadingFromDeltaXY(unit, autoAttackUnit->tilePos + autoAttackUnit->Type->GetHalfTileSize() - unit.tilePos);
+	UnitHeadingFromDeltaXY(
+		unit, autoAttackUnit->tilePos + autoAttackUnit->Type->GetHalfTileSize() - unit.tilePos);
 	return true;
 }
 
 bool COrder_Still::AutoCastStand(CUnit &unit)
 {
+	if (IsWar1gusAi(*unit.Player)) {
+		return false;
+	}
 	if (CheckInvalidAutoCastVectors(unit)) {
 		WarnInvalidAutoCastVectors(unit, "AutoCastStand");
 	}
-	if (!unit.Type->CanCastSpell.empty() && !unit.AutoCastSpell.empty() && !unit.Removed) { // Removed units can't cast any spells, from bunker)
-		const size_t spellCount = std::min({SpellTypeTable.size(), unit.Type->CanCastSpell.size(), unit.AutoCastSpell.size()});
+	if (!unit.Type->CanCastSpell.empty() && !unit.AutoCastSpell.empty()
+	    && !unit.Removed) { // Removed units can't cast any spells, from bunker)
+		const size_t spellCount = std::min(
+			{SpellTypeTable.size(), unit.Type->CanCastSpell.size(), unit.AutoCastSpell.size()});
 		for (size_t i = 0; i < spellCount; ++i) {
-			if (unit.AutoCastSpell[i]
-				&& unit.Type->CanCastSpell[i]
-				&& (SpellTypeTable[i]->AutoCast || SpellTypeTable[i]->AICast)
-				&& AutoCastSpell(unit, *SpellTypeTable[i])) {
+			if (unit.AutoCastSpell[i] && unit.Type->CanCastSpell[i]
+			    && (SpellTypeTable[i]->AutoCast || SpellTypeTable[i]->AICast)
+			    && AutoCastSpell(unit, *SpellTypeTable[i])) {
 				return true;
 			}
 		}
@@ -385,12 +414,14 @@ bool COrder_Still::AutoCastStand(CUnit &unit)
 	return false;
 }
 
-
 /**
 **  Auto attack nearby units if possible
 */
 bool AutoAttack(CUnit &unit)
 {
+	if (IsWar1gusAi(*unit.Player)) {
+		return false;
+	}
 	if (unit.Type->CanAttack == false) {
 		return false;
 	}
@@ -416,7 +447,6 @@ bool AutoAttack(CUnit &unit)
 	return true;
 }
 
-
 void COrder_Still::Execute(CUnit &unit) /* override */
 {
 	// If unit is not bunkered and removed, wait
@@ -428,9 +458,7 @@ void COrder_Still::Execute(CUnit &unit) /* override */
 	this->Finished = false;
 
 	switch (this->State) {
-		case SUB_STILL_STANDBY:
-			UnitShowAnimation(unit, &unit.Type->Animations->Still);
-			break;
+		case SUB_STILL_STANDBY: UnitShowAnimation(unit, &unit.Type->Animations->Still); break;
 		case SUB_STILL_ATTACK: // attacking unit in attack range.
 			AnimateActionAttack(unit, *this);
 			break;
@@ -457,12 +485,9 @@ void COrder_Still::Execute(CUnit &unit) /* override */
 		}
 	} else {
 		if (unit.JustMoved) --unit.JustMoved;
-		if (AutoCast(unit) || (unit.IsAggressive() && AutoAttack(unit))
-			|| AutoRepair(unit)
-			|| MoveRandomly(unit)) {
-		}
+		if (AutoCast(unit) || (unit.IsAggressive() && AutoAttack(unit)) || AutoRepair(unit)
+		    || MoveRandomly(unit)) {}
 	}
 }
-
 
 //@}

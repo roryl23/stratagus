@@ -95,26 +95,75 @@ static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlay
 	const auto position = Vec2i(command.x, command.y);
 	switch (command.verb) {
 		case AiCommandVerb::Stop:
-		case AiCommandVerb::StandGround:
-		case AiCommandVerb::Explore: return true;
+		case AiCommandVerb::StandGround: return true;
+		case AiCommandVerb::CancelBuild: return actor->CurrentAction() == UnitAction::Built;
+		case AiCommandVerb::CancelResearch: return actor->CurrentAction() == UnitAction::Research;
+		case AiCommandVerb::CancelUpgradeTo: return actor->CurrentAction() == UnitAction::UpgradeTo;
+		case AiCommandVerb::CancelTraining:
+			return !actor->Orders.empty() && actor->Orders[0]->Action == UnitAction::Train;
 		case AiCommandVerb::Attack:
 		case AiCommandVerb::Resource:
 		case AiCommandVerb::Repair:
+		case AiCommandVerb::Follow:
+		case AiCommandVerb::Board:
+		case AiCommandVerb::ReturnGoods:
 		{
 			CUnit *target = AiBatchUnit(command.target);
 			if (!target) {
 				return false;
 			}
 			switch (command.verb) {
-				case AiCommandVerb::Attack: return target->IsEnemy(player);
-				case AiCommandVerb::Resource: return target->Type->GivesResource != 0;
-				case AiCommandVerb::Repair: return target->Player == &player;
+				case AiCommandVerb::Attack:
+					return actor->Type->CanAttack && target->IsEnemy(player)
+					    && CanTarget(*actor->Type, *target->Type);
+				case AiCommandVerb::Resource:
+				{
+					const int resource = target->Type->GivesResource;
+					return (actor->Type->Building || actor->Type->BoolFlag[HARVESTER_INDEX].value)
+					    && resource > 0 && resource < MaxCosts
+					    && actor->Type->ResInfo[resource] != nullptr;
+				}
+				case AiCommandVerb::Repair:
+					return target->Player == &player && actor->Type->RepairRange > 0
+					    && target->Type->RepairHP > 0
+					    && target->Variable[HP_INDEX].Value < target->Variable[HP_INDEX].Max;
+				case AiCommandVerb::Follow: return actor->CanMove();
+				case AiCommandVerb::Board:
+					return actor->CanMove() && target->Player == &player
+					    && CanTransport(*target, *actor);
+				case AiCommandVerb::ReturnGoods:
+					return (actor->Type->Building || actor->Type->BoolFlag[HARVESTER_INDEX].value)
+					    && target->Player == &player && actor->ResourcesHeld > 0
+					    && actor->CurrentResource > 0 && actor->CurrentResource < MaxCosts
+					    && target->Type->CanStore[actor->CurrentResource] > 0;
 				default: return false;
 			}
 		}
 		case AiCommandVerb::ResourceLocation:
-		case AiCommandVerb::Move: return Map.Info.IsPointOnMap(position);
+		{
+			if (!Map.Info.IsPointOnMap(position)
+			    || (!actor->Type->Building && !actor->Type->BoolFlag[HARVESTER_INDEX].value)) {
+				return false;
+			}
+			const CMapField *field = Map.Field(position);
+			const int resource = field->Cost4OnMap() ? Cost4
+			                   : field->Cost5OnMap() ? Cost5
+			                   : field->Cost6OnMap() ? Cost6
+			                                         : WoodCost;
+			return actor->Type->ResInfo[resource]
+			    && actor->Type->ResInfo[resource]->TerrainHarvester;
+		}
+		case AiCommandVerb::Move:
+		case AiCommandVerb::Explore:
+		case AiCommandVerb::Patrol: return actor->CanMove() && Map.Info.IsPointOnMap(position);
+		case AiCommandVerb::AttackGround:
+			return actor->Type->CanAttack && Map.Info.IsPointOnMap(position);
+		case AiCommandVerb::Unload:
+			return actor->Type->CanTransport() && actor->BoardCount > 0
+			    && Map.Info.IsPointOnMap(position);
 		case AiCommandVerb::CastPosition:
+		case AiCommandVerb::CastUnit:
+		case AiCommandVerb::CastSelf:
 		case AiCommandVerb::CastAuto:
 		{
 			if (command.target >= SpellTypeTable.size() || !SpellTypeTable[command.target]) {
@@ -122,16 +171,24 @@ static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlay
 			}
 			const SpellType &spell = *SpellTypeTable[command.target];
 			if (spell.Slot >= actor->Type->CanCastSpell.size()
-			    || !actor->Type->CanCastSpell[spell.Slot]
-			    || !SpellIsAvailable(player, spell.Slot)) {
+			    || !actor->Type->CanCastSpell[spell.Slot] || !SpellIsAvailable(player, spell.Slot)
+			    || actor->Variable[MANA_INDEX].Value < spell.ManaCost
+			    || player.CheckCosts(spell.Costs, false)
+			    || (spell.Slot < actor->SpellCoolDownTimers.size()
+			        && actor->SpellCoolDownTimers[spell.Slot])) {
 				return false;
 			}
 			if (command.verb == AiCommandVerb::CastAuto) {
-				return ((player.AiEnabled && spell.AICast) || spell.AutoCast)
-				    && actor->Variable[MANA_INDEX].Value >= spell.ManaCost
-				    && !player.CheckCosts(spell.Costs, false)
-				    && (spell.Slot >= actor->SpellCoolDownTimers.size()
-				        || !actor->SpellCoolDownTimers[spell.Slot]);
+				return (player.AiEnabled && spell.AICast) || spell.AutoCast;
+			}
+			if (command.verb == AiCommandVerb::CastUnit) {
+				CUnit *target = AiBatchUnit(command.x);
+				return spell.Target == ETarget::Unit && target
+				    && CanCastSpell(*actor, spell, target, target->tilePos);
+			}
+			if (command.verb == AiCommandVerb::CastSelf) {
+				return spell.Target == ETarget::Self
+				    && CanCastSpell(*actor, spell, actor, actor->tilePos);
 			}
 			return spell.Target == ETarget::Position && Map.Info.IsPointOnMap(position)
 			    && CanCastSpell(*actor, spell, nullptr, position);
@@ -156,6 +213,17 @@ static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlay
 			return type.Building && AiBatchProducer(AiHelpers.Build(), type.Slot, actor->Type)
 			    && Map.Info.IsPointOnMap(position)
 			    && CanBuildUnitType(actor, type, position, 0).has_value();
+		}
+		case AiCommandVerb::UpgradeTo:
+		{
+			const auto &types = getUnitTypes();
+			if (command.target >= types.size() || !types[command.target] || !actor->IsIdle()) {
+				return false;
+			}
+			const CUnitType &type = *types[command.target];
+			return AiBatchProducer(AiHelpers.Upgrade(), type.Slot, actor->Type)
+			    && CheckDependByType(player, type) && !player.CheckUnitType(type)
+			    && !player.CheckCosts(type.Stats[player.Index].Costs, false);
 		}
 		case AiCommandVerb::Research:
 		{
@@ -217,13 +285,23 @@ bool ExecuteAiCommandBatch(const AiCommandBatch &batch)
 		switch (command.verb) {
 			case AiCommandVerb::Stop: CommandStopUnit(actor); break;
 			case AiCommandVerb::StandGround: CommandStandGround(actor, EFlushMode::On); break;
-			case AiCommandVerb::Explore: CommandExplore(actor, EFlushMode::On); break;
+			case AiCommandVerb::Explore: CommandMove(actor, position, EFlushMode::On); break;
 			case AiCommandVerb::Attack:
 			{
 				CUnit &target = UnitManager->GetSlotUnit(command.target);
 				CommandAttack(actor, target.tilePos, &target, EFlushMode::On);
 				break;
 			}
+			case AiCommandVerb::Follow:
+				CommandFollow(actor, UnitManager->GetSlotUnit(command.target), EFlushMode::On);
+				break;
+			case AiCommandVerb::Board:
+				CommandBoard(actor, UnitManager->GetSlotUnit(command.target), EFlushMode::On);
+				break;
+			case AiCommandVerb::ReturnGoods:
+				CommandReturnGoods(
+					actor, &UnitManager->GetSlotUnit(command.target), EFlushMode::On);
+				break;
 			case AiCommandVerb::Resource:
 				CommandResource(actor, UnitManager->GetSlotUnit(command.target), EFlushMode::On);
 				break;
@@ -237,6 +315,32 @@ bool ExecuteAiCommandBatch(const AiCommandBatch &batch)
 				CommandResourceLoc(actor, position, EFlushMode::On);
 				break;
 			case AiCommandVerb::Move: CommandMove(actor, position, EFlushMode::On); break;
+			case AiCommandVerb::Patrol: CommandPatrolUnit(actor, position, EFlushMode::On); break;
+			case AiCommandVerb::AttackGround:
+				CommandAttackGround(actor, position, EFlushMode::On);
+				break;
+			case AiCommandVerb::Unload:
+				CommandUnload(actor, position, nullptr, EFlushMode::On);
+				break;
+			case AiCommandVerb::CastUnit:
+			{
+				CUnit &target = UnitManager->GetSlotUnit(command.x);
+				CommandSpellCast(actor,
+				                 target.tilePos,
+				                 &target,
+				                 *SpellTypeTable[command.target],
+				                 EFlushMode::On,
+				                 false);
+				break;
+			}
+			case AiCommandVerb::CastSelf:
+				CommandSpellCast(actor,
+				                 actor.tilePos,
+				                 &actor,
+				                 *SpellTypeTable[command.target],
+				                 EFlushMode::On,
+				                 false);
+				break;
 			case AiCommandVerb::CastPosition:
 				CommandSpellCast(actor,
 				                 position,
@@ -252,6 +356,13 @@ bool ExecuteAiCommandBatch(const AiCommandBatch &batch)
 			case AiCommandVerb::Train:
 				CommandTrainUnit(actor, *getUnitTypes()[command.target], EFlushMode::On);
 				break;
+			case AiCommandVerb::UpgradeTo:
+				CommandUpgradeTo(actor, *getUnitTypes()[command.target], EFlushMode::On);
+				break;
+			case AiCommandVerb::CancelBuild: CommandDismiss(actor); break;
+			case AiCommandVerb::CancelResearch: CommandCancelResearch(actor); break;
+			case AiCommandVerb::CancelUpgradeTo: CommandCancelUpgradeTo(actor); break;
+			case AiCommandVerb::CancelTraining: CommandCancelTraining(actor, 0, nullptr); break;
 			case AiCommandVerb::CastAuto:
 				AutoCastSpell(actor, *SpellTypeTable[command.target]);
 				break;

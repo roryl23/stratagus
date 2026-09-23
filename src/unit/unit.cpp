@@ -33,9 +33,10 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
+// clang-format off
+#include "util.h" // Provides Assert and isqrt before unit.h's pathfinder/vec2i templates.
 #include "unit.h"
+// clang-format on
 
 #include "action/action_attack.h"
 #include "actions.h"
@@ -56,6 +57,7 @@
 #include "sound.h"
 #include "sound_server.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "tileset.h"
 #include "translate.h"
 #include "ui.h"
@@ -340,15 +342,15 @@
 --  Variables
 ----------------------------------------------------------------------------*/
 
-bool EnableTrainingQueue;                 /// Config: training queues enabled
-bool EnableBuildingCapture;               /// Config: capture buildings enabled
-bool RevealAttacker;                      /// Config: reveal attacker enabled
-int ResourcesMultiBuildersMultiplier = 0; /// Config: spend resources for building with multiple workers
+bool EnableTrainingQueue; /// Config: training queues enabled
+bool EnableBuildingCapture; /// Config: capture buildings enabled
+bool RevealAttacker; /// Config: reveal attacker enabled
+int ResourcesMultiBuildersMultiplier =
+	0; /// Config: spend resources for building with multiple workers
 
-static unsigned long HelpMeLastCycle;     /// Last cycle HelpMe sound played
-static int HelpMeLastX;                   /// Last X coordinate HelpMe sound played
-static int HelpMeLastY;                   /// Last Y coordinate HelpMe sound played
-
+static unsigned long HelpMeLastCycle; /// Last cycle HelpMe sound played
+static int HelpMeLastX; /// Last X coordinate HelpMe sound played
+static int HelpMeLastY; /// Last Y coordinate HelpMe sound played
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -542,7 +544,6 @@ void CUnit::ClearAction()
 	}
 }
 
-
 bool CUnit::IsIdle() const
 {
 	return Orders.size() == 1 && CurrentAction() == UnitAction::Still;
@@ -598,7 +599,8 @@ void CUnit::Init(const CUnitType &type)
 	// Set a heading for the unit if it Handles Directions
 	// Don't set a building heading, as only 1 construction direction
 	//   is allowed.
-	if (type.NumDirections > 1 && type.BoolFlag[NORANDOMPLACING_INDEX].value == false && !type.Building) {
+	if (type.NumDirections > 1 && type.BoolFlag[NORANDOMPLACING_INDEX].value == false
+	    && !type.Building) {
 		Direction = (SyncRand() >> 8) & 0xFF; // random heading
 		UnitUpdateHeading(*this);
 	}
@@ -688,7 +690,8 @@ void CUnit::AssignToPlayer(CPlayer &player)
 			// don't count again
 			if (type.Building) {
 				// FIXME: support more races
-				if (!type.BoolFlag[WALL_INDEX].value && &type != UnitTypeOrcWall && &type != UnitTypeHumanWall) {
+				if (!type.BoolFlag[WALL_INDEX].value && &type != UnitTypeOrcWall
+				    && &type != UnitTypeHumanWall) {
 					player.TotalBuildings++;
 				}
 			} else {
@@ -705,7 +708,8 @@ void CUnit::AssignToPlayer(CPlayer &player)
 	// Don't Add the building if it's dying, used to load a save game
 	if (type.Building && CurrentAction() != UnitAction::Die) {
 		// FIXME: support more races
-		if (!type.BoolFlag[WALL_INDEX].value && &type != UnitTypeOrcWall && &type != UnitTypeHumanWall) {
+		if (!type.BoolFlag[WALL_INDEX].value && &type != UnitTypeOrcWall
+		    && &type != UnitTypeHumanWall) {
 			player.NumBuildings++;
 		}
 	}
@@ -744,7 +748,7 @@ CUnit *MakeUnit(const CUnitType &type, CPlayer *player)
 
 	//  fancy buildings: mirror buildings (but shadows not correct)
 	if (type.Building && FancyBuildings
-		&& unit->Type->BoolFlag[NORANDOMPLACING_INDEX].value == false && (MyRand() & 1) != 0) {
+	    && unit->Type->BoolFlag[NORANDOMPLACING_INDEX].value == false && (MyRand() & 1) != 0) {
 		unit->Frame = -unit->Frame - 1;
 	}
 	return unit;
@@ -761,15 +765,25 @@ CUnit *MakeUnit(const CUnitType &type, CPlayer *player)
 **  @param f       Function to (un)mark for normal vision.
 **  @param f2      Function to (un)mark for cloaking vision.
 */
-static void MapMarkUnitSightRec(const CUnit &unit, const Vec2i &pos, int width, int height,
-								MapMarkerFunc &f, MapMarkerFunc *f2)
+static void MapMarkUnitSightRec(
+	const CUnit &unit, const Vec2i &pos, int width, int height, MapMarkerFunc &f, MapMarkerFunc *f2)
 {
-	MapSight(*unit.Player, unit, pos, width, height,
-			 unit.Container ? unit.Container->CurrentSightRange : unit.CurrentSightRange, f);
+	MapSight(*unit.Player,
+	         unit,
+	         pos,
+	         width,
+	         height,
+	         unit.Container ? unit.Container->CurrentSightRange : unit.CurrentSightRange,
+	         f);
 
 	if (unit.Type && unit.Type->BoolFlag[DETECTCLOAK_INDEX].value && f2) {
-		MapSight(*unit.Player, unit, pos, width, height,
-				 unit.Container ? unit.Container->CurrentSightRange : unit.CurrentSightRange, f2);
+		MapSight(*unit.Player,
+		         unit,
+		         pos,
+		         width,
+		         height,
+		         unit.Container ? unit.Container->CurrentSightRange : unit.CurrentSightRange,
+		         f2);
 	}
 
 	for (const CUnit *unit_inside : unit.InsideUnits) {
@@ -803,21 +817,33 @@ CUnit *GetFirstContainer(const CUnit &unit)
 */
 void MapMarkUnitSight(CUnit &unit)
 {
-	CUnit *container = GetFirstContainer(unit);// First container of the unit.
+	CUnit *container = GetFirstContainer(unit); // First container of the unit.
 	Assert(container->Type);
 
-	MapMarkUnitSightRec(unit, container->tilePos, container->Type->TileWidth, container->Type->TileHeight,
-						MapMarkTileSight, MapMarkTileDetectCloak);
+	MapMarkUnitSightRec(unit,
+	                    container->tilePos,
+	                    container->Type->TileWidth,
+	                    container->Type->TileHeight,
+	                    MapMarkTileSight,
+	                    MapMarkTileDetectCloak);
 
 	// Never mark radar, except if the top unit, and unit is usable
 	if (&unit == container && !unit.IsUnusable()) {
 		if (unit.Stats->Variables[RADAR_INDEX].Value) {
-			MapMarkRadar(*unit.Player, unit, unit.tilePos, unit.Type->TileWidth,
-						 unit.Type->TileHeight, unit.Stats->Variables[RADAR_INDEX].Value);
+			MapMarkRadar(*unit.Player,
+			             unit,
+			             unit.tilePos,
+			             unit.Type->TileWidth,
+			             unit.Type->TileHeight,
+			             unit.Stats->Variables[RADAR_INDEX].Value);
 		}
 		if (unit.Stats->Variables[RADARJAMMER_INDEX].Value) {
-			MapMarkRadarJammer(*unit.Player, unit, unit.tilePos, unit.Type->TileWidth,
-							   unit.Type->TileHeight, unit.Stats->Variables[RADARJAMMER_INDEX].Value);
+			MapMarkRadarJammer(*unit.Player,
+			                   unit,
+			                   unit.tilePos,
+			                   unit.Type->TileWidth,
+			                   unit.Type->TileHeight,
+			                   unit.Stats->Variables[RADARJAMMER_INDEX].Value);
 		}
 	}
 }
@@ -836,18 +862,29 @@ void MapUnmarkUnitSight(CUnit &unit)
 	CUnit *container = GetFirstContainer(unit);
 	Assert(container->Type);
 	MapMarkUnitSightRec(unit,
-						container->tilePos, container->Type->TileWidth, container->Type->TileHeight,
-						MapUnmarkTileSight, MapUnmarkTileDetectCloak);
+	                    container->tilePos,
+	                    container->Type->TileWidth,
+	                    container->Type->TileHeight,
+	                    MapUnmarkTileSight,
+	                    MapUnmarkTileDetectCloak);
 
 	// Never mark radar, except if the top unit?
 	if (&unit == container && !unit.IsUnusable()) {
 		if (unit.Stats->Variables[RADAR_INDEX].Value) {
-			MapUnmarkRadar(*unit.Player, unit, unit.tilePos, unit.Type->TileWidth,
-						   unit.Type->TileHeight, unit.Stats->Variables[RADAR_INDEX].Value);
+			MapUnmarkRadar(*unit.Player,
+			               unit,
+			               unit.tilePos,
+			               unit.Type->TileWidth,
+			               unit.Type->TileHeight,
+			               unit.Stats->Variables[RADAR_INDEX].Value);
 		}
 		if (unit.Stats->Variables[RADARJAMMER_INDEX].Value) {
-			MapUnmarkRadarJammer(*unit.Player, unit, unit.tilePos, unit.Type->TileWidth,
-								 unit.Type->TileHeight, unit.Stats->Variables[RADARJAMMER_INDEX].Value);
+			MapUnmarkRadarJammer(*unit.Player,
+			                     unit,
+			                     unit.tilePos,
+			                     unit.Type->TileWidth,
+			                     unit.Type->TileHeight,
+			                     unit.Stats->Variables[RADARJAMMER_INDEX].Value);
 		}
 	}
 }
@@ -866,13 +903,13 @@ void MapRefreshUnitsSight(const Vec2i &tilePos, const bool resetSight /*= false*
 {
 	const CMapField *mapField = Map.Field(tilePos);
 	for (const CPlayer &player : Players) {
-		if(!mapField->playerInfo.Visible[player.Index]) {
+		if (!mapField->playerInfo.Visible[player.Index]) {
 			continue;
 		}
 		for (CUnit *const unit : player.GetUnits()) {
 			if (!unit->Destroyed) {
 				const auto dist = unit->Container ? unit->Container->MapDistanceTo(tilePos)
-												  : unit->MapDistanceTo(tilePos);
+				                                  : unit->MapDistanceTo(tilePos);
 				if (dist <= unit->CurrentSightRange) {
 					if (resetSight) {
 						MapUnmarkUnitSight(*unit);
@@ -948,12 +985,12 @@ void UpdateUnitSightRange(CUnit &unit)
 void MarkUnitFieldFlags(const CUnit &unit)
 {
 	const unsigned int flags = unit.Type->FieldFlags;
-	int h = unit.Type->TileHeight;          // Tile height of the unit.
+	int h = unit.Type->TileHeight; // Tile height of the unit.
 	const int width = unit.Type->TileWidth; // Tile width of the unit.
 	unsigned int index = unit.Offset;
 
 	if (unit.Type->BoolFlag[VANISHES_INDEX].value) {
-		return ;
+		return;
 	}
 	do {
 		CMapField *mf = Map.Field(index);
@@ -969,8 +1006,7 @@ void MarkUnitFieldFlags(const CUnit &unit)
 class _UnmarkUnitFieldFlags
 {
 public:
-	_UnmarkUnitFieldFlags(const CUnit &unit, CMapField *mf) : main(&unit), mf(mf)
-	{}
+	_UnmarkUnitFieldFlags(const CUnit &unit, CMapField *mf) : main(&unit), mf(mf) {}
 
 	void operator()(CUnit *const unit) const
 	{
@@ -978,11 +1014,11 @@ public:
 			mf->Flags |= unit->Type->FieldFlags;
 		}
 	}
+
 private:
 	const CUnit *const main;
 	CMapField *mf;
 };
-
 
 /**
 **  Mark the field with the FieldFlags.
@@ -997,14 +1033,14 @@ void UnmarkUnitFieldFlags(const CUnit &unit)
 	unsigned int index = unit.Offset;
 
 	if (unit.Type->BoolFlag[VANISHES_INDEX].value) {
-		return ;
+		return;
 	}
 	do {
 		CMapField *mf = Map.Field(index);
 
 		int w = width;
 		do {
-			mf->Flags &= flags;//clean flags
+			mf->Flags &= flags; //clean flags
 			_UnmarkUnitFieldFlags funct(unit, mf);
 
 			for (auto *unit : mf->UnitCache) {
@@ -1031,8 +1067,9 @@ void CUnit::AddInContainer(CUnit &host)
 		// loaded via CclUnit
 		return;
 	}
-	auto it = ranges::find_if(host.InsideUnits,
-	                          [=](const CUnit *unit) { return unit->Type->BoardSize <= Type->BoardSize; });
+	auto it = ranges::find_if(host.InsideUnits, [=](const CUnit *unit) {
+		return unit->Type->BoardSize <= Type->BoardSize;
+	});
 	host.InsideUnits.insert(it, this);
 }
 
@@ -1052,7 +1089,6 @@ static void RemoveUnitFromContainer(CUnit &unit)
 	}
 	unit.Container = nullptr;
 }
-
 
 /**
 **  Affect Tile coord of a unit (with units inside) to tile (x, y).
@@ -1273,7 +1309,7 @@ void CUnit::Remove(CUnit *host)
 */
 void UnitLost(CUnit &unit)
 {
-	Assert(unit.Player);  // Next code didn't support no player!
+	Assert(unit.Player); // Next code didn't support no player!
 	CPlayer &player = *unit.Player;
 
 	//  Call back to AI, for killed or lost units.
@@ -1296,7 +1332,8 @@ void UnitLost(CUnit &unit)
 
 		if (type.Building) {
 			// FIXME: support more races
-			if (!type.BoolFlag[WALL_INDEX].value && &type != UnitTypeOrcWall && &type != UnitTypeHumanWall) {
+			if (!type.BoolFlag[WALL_INDEX].value && &type != UnitTypeOrcWall
+			    && &type != UnitTypeHumanWall) {
 				player.NumBuildings--;
 			}
 		}
@@ -1317,7 +1354,8 @@ void UnitLost(CUnit &unit)
 		// Decrease resource limit
 		for (int i = 0; i < MaxCosts; ++i) {
 			if (player.MaxResources[i] != -1 && type.Stats[player.Index].Storing[i]) {
-				const int newMaxValue = player.MaxResources[i] - type.Stats[player.Index].Storing[i];
+				const int newMaxValue =
+					player.MaxResources[i] - type.Stats[player.Index].Storing[i];
 
 				player.MaxResources[i] = std::max(0, newMaxValue);
 				player.SetResource(i, player.StoredResources[i], EStoreType::Building);
@@ -1327,10 +1365,11 @@ void UnitLost(CUnit &unit)
 		//  which have given him a better income, find the next best
 		//  income.
 		for (int i = 1; i < MaxCosts; ++i) {
-			if (player.Incomes[i] && type.Stats[player.Index].ImproveIncomes[i] == player.Incomes[i]) {
+			if (player.Incomes[i]
+			    && type.Stats[player.Index].ImproveIncomes[i] == player.Incomes[i]) {
 				int m = DefaultIncomes[i];
 
-				for (const CUnit* punit : player.GetUnits()) {
+				for (const CUnit *punit : player.GetUnits()) {
 					m = std::max(m, punit->Type->Stats[player.Index].ImproveIncomes[i]);
 				}
 				player.Incomes[i] = m;
@@ -1343,12 +1382,17 @@ void UnitLost(CUnit &unit)
 			return unit->Type->BoolFlag[MAINFACILITY_INDEX].value;
 		});
 		if (lost_town_hall) {
-			player.LostMainFacilityTimer = GameCycle + (30 * CYCLES_PER_SECOND); //30 seconds until being revealed
+			player.LostMainFacilityTimer =
+				GameCycle + (30 * CYCLES_PER_SECOND); //30 seconds until being revealed
 			for (int j = 0; j < NumPlayers; ++j) {
 				if (player.Index != j && Players[j].Type != PlayerTypes::PlayerNobody) {
-					Players[j].Notify(_("%s has lost their last base, and will be revealed in thirty seconds!"), player.Name.c_str());
+					Players[j].Notify(
+						_("%s has lost their last base, and will be revealed in thirty seconds!"),
+						player.Name.c_str());
 				} else {
-					Players[j].Notify("%s", _("You have lost your last base, and will be revealed in thirty seconds!"));
+					Players[j].Notify(
+						"%s",
+						_("You have lost your last base, and will be revealed in thirty seconds!"));
 				}
 			}
 		}
@@ -1370,7 +1414,8 @@ void UnitLost(CUnit &unit)
 				temp->ResourcesHeld = unit.ResourcesHeld;
 				temp->Variable[GIVERESOURCE_INDEX].Value = unit.Variable[GIVERESOURCE_INDEX].Value;
 				temp->Variable[GIVERESOURCE_INDEX].Max = unit.Variable[GIVERESOURCE_INDEX].Max;
-				temp->Variable[GIVERESOURCE_INDEX].Enable = unit.Variable[GIVERESOURCE_INDEX].Enable;
+				temp->Variable[GIVERESOURCE_INDEX].Enable =
+					unit.Variable[GIVERESOURCE_INDEX].Enable;
 			}
 		}
 	}
@@ -1435,7 +1480,8 @@ static void UnitFillSeenValues(CUnit &unit)
 }
 
 // Wall unit positions
-enum {
+enum
+{
 	W_NORTH = 0x10,
 	W_WEST = 0x20,
 	W_SOUTH = 0x40,
@@ -1454,14 +1500,16 @@ void CorrectWallDirections(CUnit &unit)
 	Assert(!unit.Type->Flip);
 
 	if (!Map.Info.IsPointOnMap(unit.tilePos)) {
-		return ;
+		return;
 	}
-	const struct {
+	const struct
+	{
 		Vec2i offset;
 		const int dirFlag;
-	} configs[] = {{Vec2i(0, -1), W_NORTH}, {Vec2i(1, 0), W_EAST},
-		{Vec2i(0, 1), W_SOUTH}, {Vec2i(-1, 0), W_WEST}
-	};
+	} configs[] = {{Vec2i(0, -1), W_NORTH},
+	               {Vec2i(1, 0), W_EAST},
+	               {Vec2i(0, 1), W_SOUTH},
+	               {Vec2i(-1, 0), W_WEST}};
 	int flags = 0;
 
 	for (const auto &[offset, dirFlag] : configs) {
@@ -1558,7 +1606,8 @@ void UnitGoesOutOfFog(CUnit &unit, const CPlayer &player)
 		return;
 	}
 	if (unit.Seen.ByPlayer & (1 << (player.Index))) {
-		if ((player.Type == PlayerTypes::PlayerPerson) && (!(unit.Seen.Destroyed & (1 << player.Index)))) {
+		if ((player.Type == PlayerTypes::PlayerPerson)
+		    && (!(unit.Seen.Destroyed & (1 << player.Index)))) {
 			unit.RefsDecrease();
 		}
 	} else {
@@ -1602,8 +1651,10 @@ void UnitCountSeen(CUnit &unit)
 				CMapField *mf = Map.Field(index);
 				int x = width;
 				do {
-					if (unit.Type->BoolFlag[PERMANENTCLOAK_INDEX].value && unit.Player != &Players[p]) {
-						if (mf->playerInfo.VisCloak[p] || Players[p].Type == PlayerTypes::PlayerNobody) {
+					if (unit.Type->BoolFlag[PERMANENTCLOAK_INDEX].value
+					    && unit.Player != &Players[p]) {
+						if (mf->playerInfo.VisCloak[p]
+						    || Players[p].Type == PlayerTypes::PlayerNobody) {
 							newv++;
 						}
 					} else {
@@ -1682,13 +1733,14 @@ bool CUnit::IsVisibleOnMinimap() const
 		return false;
 	}
 	if (IsVisible(*ThisPlayer) || ReplayRevealMap || IsVisibleOnRadar(*ThisPlayer)
-		|| (CPlayer::IsRevelationEnabled() && Player->IsRevealed()
-			&& (CPlayer::RevelationFor == RevealTypes::cAllUnits || this->Type->BoolFlag[BUILDING_INDEX].value))) {
+	    || (CPlayer::IsRevelationEnabled() && Player->IsRevealed()
+	        && (CPlayer::RevelationFor == RevealTypes::cAllUnits
+	            || this->Type->BoolFlag[BUILDING_INDEX].value))) {
 		return IsAliveOnMap();
 	} else {
 		return Type->BoolFlag[VISIBLEUNDERFOG_INDEX].value && Seen.State != 3
-			   && (Seen.ByPlayer & (1 << ThisPlayer->Index))
-			   && !(Seen.Destroyed & (1 << ThisPlayer->Index));
+		    && (Seen.ByPlayer & (1 << ThisPlayer->Index))
+		    && !(Seen.Destroyed & (1 << ThisPlayer->Index));
 	}
 }
 
@@ -1704,14 +1756,16 @@ bool CUnit::IsVisibleOnMinimap() const
 bool CUnit::IsVisibleInViewport(const CViewport &vp) const
 {
 	// Check if the graphic is inside the viewport.
-	int x = tilePos.x * PixelTileSize.x + IX - (Type->Width - Type->TileWidth * PixelTileSize.x) / 2 + Type->Offset.x;
-	int y = tilePos.y * PixelTileSize.y + IY - (Type->Height - Type->TileHeight * PixelTileSize.y) / 2 + Type->Offset.y;
+	int x = tilePos.x * PixelTileSize.x + IX - (Type->Width - Type->TileWidth * PixelTileSize.x) / 2
+	      + Type->Offset.x;
+	int y = tilePos.y * PixelTileSize.y + IY
+	      - (Type->Height - Type->TileHeight * PixelTileSize.y) / 2 + Type->Offset.y;
 	const PixelSize vpSize = vp.GetPixelSize();
 	const PixelPos vpTopLeftMapPos = Map.TilePosToMapPixelPos_TopLeft(vp.MapPos) + vp.Offset;
 	const PixelPos vpBottomRightMapPos = vpTopLeftMapPos + vpSize;
 
 	if (x + Type->Width < vpTopLeftMapPos.x || x > vpBottomRightMapPos.x
-		|| y + Type->Height < vpTopLeftMapPos.y || y > vpBottomRightMapPos.y) {
+	    || y + Type->Height < vpTopLeftMapPos.y || y > vpBottomRightMapPos.y) {
 		return false;
 	}
 
@@ -1734,7 +1788,8 @@ bool CUnit::IsVisibleInViewport(const CViewport &vp) const
 		// Unit has to be 'discovered'
 		// Destroyed units ARE visible under fog of war, if we haven't seen them like that.
 		if (!Destroyed || !(Seen.Destroyed & (1 << ThisPlayer->Index))) {
-			return (Type->BoolFlag[VISIBLEUNDERFOG_INDEX].value && (Seen.ByPlayer & (1 << ThisPlayer->Index)));
+			return (Type->BoolFlag[VISIBLEUNDERFOG_INDEX].value
+			        && (Seen.ByPlayer & (1 << ThisPlayer->Index)));
 		} else {
 			return false;
 		}
@@ -1807,8 +1862,12 @@ void CUnit::ChangeOwner(CPlayer &newplayer)
 
 	//apply the upgrades of the new player, if the old one doesn't have that upgrade
 	for (int z = 0; z < NumUpgradeModifiers; ++z) {
-		if (oldplayer->Allow.Upgrades[UpgradeModifiers[z]->UpgradeId] != 'R' && newplayer.Allow.Upgrades[UpgradeModifiers[z]->UpgradeId] == 'R' && UpgradeModifiers[z]->ApplyTo[Type->Slot] == 'X') { //if the old player doesn't have the modifier's upgrade, and the upgrade is applicable to the unit
-			ApplyIndividualUpgradeModifier(*this, *UpgradeModifiers[z]); //apply the upgrade to this unit only
+		if (oldplayer->Allow.Upgrades[UpgradeModifiers[z]->UpgradeId] != 'R'
+		    && newplayer.Allow.Upgrades[UpgradeModifiers[z]->UpgradeId] == 'R'
+		    && UpgradeModifiers[z]->ApplyTo[Type->Slot]
+		           == 'X') { //if the old player doesn't have the modifier's upgrade, and the upgrade is applicable to the unit
+			ApplyIndividualUpgradeModifier(
+				*this, *UpgradeModifiers[z]); //apply the upgrade to this unit only
 		}
 	}
 
@@ -1860,7 +1919,7 @@ void CUnit::DeAssignWorkerFromMine(CUnit &mine)
 static void ChangePlayerOwner(CPlayer &oldplayer, CPlayer &newplayer)
 {
 	if (&oldplayer == &newplayer) {
-		return ;
+		return;
 	}
 
 	for (CUnit *unit : oldplayer.GetUnits()) {
@@ -1882,14 +1941,15 @@ static void ChangePlayerOwner(CPlayer &oldplayer, CPlayer &newplayer)
 */
 void RescueUnits()
 {
-	if (NoRescueCheck) {  // all possible units are rescued
+	if (NoRescueCheck) { // all possible units are rescued
 		return;
 	}
 	NoRescueCheck = true;
 
 	//  Look if player could be rescued.
 	for (CPlayer *p = Players; p < Players + NumPlayers; ++p) {
-		if (p->Type != PlayerTypes::PlayerRescuePassive && p->Type != PlayerTypes::PlayerRescueActive) {
+		if (p->Type != PlayerTypes::PlayerRescuePassive
+		    && p->Type != PlayerTypes::PlayerRescueActive) {
 			continue;
 		}
 		if (!p->GetUnits().empty()) {
@@ -1906,7 +1966,9 @@ void RescueUnits()
 				std::vector<CUnit *> around = SelectAroundUnit(*unit, 1);
 				//  Look if ally near the unit.
 				for (size_t i = 0; i != around.size(); ++i) {
-					if (around[i]->Type->CanAttack && unit->IsAllied(*around[i]) && around[i]->Player->Type != PlayerTypes::PlayerRescuePassive && around[i]->Player->Type != PlayerTypes::PlayerRescueActive) {
+					if (around[i]->Type->CanAttack && unit->IsAllied(*around[i])
+					    && around[i]->Player->Type != PlayerTypes::PlayerRescuePassive
+					    && around[i]->Player->Type != PlayerTypes::PlayerRescueActive) {
 						//  City center converts complete race
 						//  NOTE: I use a trick here, centers could
 						//        store gold. FIXME!!!
@@ -1917,7 +1979,8 @@ void RescueUnits()
 						unit->RescuedFrom = unit->Player;
 						unit->ChangeOwner(*around[i]->Player);
 						unit->Blink = 5;
-						PlayGameSound(GameSounds.Rescue[unit->Player->Race].Sound.get(), MaxSampleVolume);
+						PlayGameSound(GameSounds.Rescue[unit->Player->Race].Sound.get(),
+						              MaxSampleVolume);
 						break;
 					}
 				}
@@ -1947,8 +2010,7 @@ static int myatan(int val)
 	}
 	if (!init) {
 		for (; init < 2608; ++init) {
-			atan_table[init] =
-				(unsigned char)(atan((double)init / 64) * (64 * 4 / 6.2831853));
+			atan_table[init] = (unsigned char) (atan((double) init / 64) * (64 * 4 / 6.2831853));
 		}
 	}
 
@@ -2048,11 +2110,11 @@ void UnitHeadingFromDeltaXY(CUnit &unit, const Vec2i &delta)
 		if (diffLeft == 128) {
 			unit.Anim.Rotate = -128;
 		} else {
-			Assert((signed char)diffLeft >= 0);
-			unit.Anim.Rotate = -((signed char)(diffLeft));
+			Assert((signed char) diffLeft >= 0);
+			unit.Anim.Rotate = -((signed char) (diffLeft));
 		}
 	} else {
-		Assert((signed char)diffRight >= 0);
+		Assert((signed char) diffRight >= 0);
 		unit.Anim.Rotate = diffRight;
 	}
 	unit.Direction = newDirection;
@@ -2277,15 +2339,16 @@ CUnit *UnitOnScreen(int x, int y)
 		// Check if mouse is over the unit.
 		//
 		PixelPos unitSpritePos = unit.GetMapPixelPosCenter();
-		unitSpritePos.x = unitSpritePos.x - type.BoxWidth / 2 -
-						  (type.Width - type.Sprite->Width) / 2 + type.BoxOffset.x;
-		unitSpritePos.y = unitSpritePos.y - type.BoxHeight / 2 -
-						  (type.Height - type.Sprite->Height) / 2 + type.BoxOffset.y;
-		if (x >= unitSpritePos.x && x < unitSpritePos.x + type.BoxWidth
-			&& y >= unitSpritePos.y  && y < unitSpritePos.y + type.BoxHeight) {
+		unitSpritePos.x = unitSpritePos.x - type.BoxWidth / 2
+		                - (type.Width - type.Sprite->Width) / 2 + type.BoxOffset.x;
+		unitSpritePos.y = unitSpritePos.y - type.BoxHeight / 2
+		                - (type.Height - type.Sprite->Height) / 2 + type.BoxOffset.y;
+		if (x >= unitSpritePos.x && x < unitSpritePos.x + type.BoxWidth && y >= unitSpritePos.y
+		    && y < unitSpritePos.y + type.BoxHeight) {
 			// Check if there are other units on this place
 			candidate = &unit;
-			if (IsOnlySelected(*candidate) || candidate->Type->BoolFlag[ISNOTSELECTABLE_INDEX].value) {
+			if (IsOnlySelected(*candidate)
+			    || candidate->Type->BoolFlag[ISNOTSELECTABLE_INDEX].value) {
 				continue;
 			} else {
 				break;
@@ -2375,7 +2438,6 @@ void LetUnitDie(CUnit &unit, bool suicide)
 	UnitLost(unit);
 	UnitClearOrders(unit);
 
-
 	// Unit has death animation.
 
 	// Not good: UnitUpdateHeading(unit);
@@ -2383,14 +2445,15 @@ void LetUnitDie(CUnit &unit, bool suicide)
 	if (type->CorpseType) {
 #ifdef DYNAMIC_LOAD
 		if (!type->CorpseType->Sprite) {
-			LoadUnitTypeSprite(*(CUnitType*)type->CorpseType);
+			LoadUnitTypeSprite(*(CUnitType *) type->CorpseType);
 		}
 #endif
 		unit.IX = (type->CorpseType->Width - type->CorpseType->Sprite->Width) / 2;
 		unit.IY = (type->CorpseType->Height - type->CorpseType->Sprite->Height) / 2;
 		unit.ZDisplaced = 0;
 
-		unit.CurrentSightRange = type->CorpseType->Stats[unit.Player->Index].Variables[SIGHTRANGE_INDEX].Max;
+		unit.CurrentSightRange =
+			type->CorpseType->Stats[unit.Player->Index].Variables[SIGHTRANGE_INDEX].Max;
 	} else {
 		unit.CurrentSightRange = 0;
 	}
@@ -2430,14 +2493,12 @@ void DestroyAllInside(CUnit &source)
 	}
 }
 
-
 /*----------------------------------------------------------------------------
   -- Unit AI
   ----------------------------------------------------------------------------*/
 
 int ThreatCalculate(const CUnit &unit, const CUnit &dest)
 {
-
 	if (GameSettings.SimplifiedAutoTargeting) {
 		// Original algorithm return smaller values for better targets
 		return -TargetPriorityCalculate(unit, dest);
@@ -2448,8 +2509,9 @@ int ThreatCalculate(const CUnit &unit, const CUnit &dest)
 	int cost = 0;
 
 	// Buildings, non-aggressive (except workers) and invincible units have the lowest priority
-	if ((dest.IsAggressive() == false && !dest.Type->BoolFlag[HARVESTER_INDEX].value) || dest.Variable[UNHOLYARMOR_INDEX].Value > 0
-		|| dest.Type->BoolFlag[INDESTRUCTIBLE_INDEX].value) {
+	if ((dest.IsAggressive() == false && !dest.Type->BoolFlag[HARVESTER_INDEX].value)
+	    || dest.Variable[UNHOLYARMOR_INDEX].Value > 0
+	    || dest.Type->BoolFlag[INDESTRUCTIBLE_INDEX].value) {
 		if (dest.Type->CanMove() == false) {
 			return INT_MAX;
 		} else {
@@ -2498,8 +2560,7 @@ int TargetPriorityCalculate(const CUnit &attacker, const CUnit &dest)
 	const CUnitType &dtype = *dest.Type;
 
 	if (!player.IsEnemy(dest) // a friend or neutral
-		|| !dest.IsVisibleAsGoal(player)
-		|| !CanTarget(type, dtype)) {
+	    || !dest.IsVisibleAsGoal(player) || !CanTarget(type, dtype)) {
 		return INT_MIN;
 	}
 	// Don't attack invulnerable units
@@ -2507,19 +2568,18 @@ int TargetPriorityCalculate(const CUnit &attacker, const CUnit &dest)
 		return INT_MIN;
 	}
 
-	const int attackRange 	 = attacker.Stats->Variables[ATTACKRANGE_INDEX].Max;
+	const int attackRange = attacker.Stats->Variables[ATTACKRANGE_INDEX].Max;
 	const int minAttackRange = attacker.Type->MinAttackRange;
-	const int pathLength 	 = CalcPathLengthToUnit(attacker, dest, minAttackRange, attackRange);
-	int distance		 	 = attacker.MapDistanceTo(dest);
+	const int pathLength = CalcPathLengthToUnit(attacker, dest, minAttackRange, attackRange);
+	int distance = attacker.MapDistanceTo(dest);
 
-	const int reactionRange  = (player.Type == PlayerTypes::PlayerPerson) ? type.ReactRangePerson : type.ReactRangeComputer;
-
+	const int reactionRange = (player.Type == PlayerTypes::PlayerPerson) ? type.ReactRangePerson
+	                                                                     : type.ReactRangeComputer;
 
 	if (!InAttackRange(attacker, dest)
 	    && ((distance > minAttackRange && pathLength < 0) || attacker.CanMove() == false)) {
 		return INT_MIN;
 	}
-
 
 	// Attack walls only if we are stuck in them
 	if (dtype.BoolFlag[WALL_INDEX].value && distance > 1) {
@@ -2545,7 +2605,8 @@ int TargetPriorityCalculate(const CUnit &attacker, const CUnit &dest)
 	// we do full priority calculations only for easy reachable targets, or for targets which attacks this unit.
 	// For other targets we dramatically reduce priority and calc only attacked by/threat factor, distance and health
 	const int maxDistance = attackRange > 1 ? reactionRange : (reactionRange * 3) >> 1 /* x1.5 */;
-	const bool isFarAwayTarget = !(priority & AT_ATTACKED_BY_FACTOR) && (pathLength + 1 > maxDistance);
+	const bool isFarAwayTarget =
+		!(priority & AT_ATTACKED_BY_FACTOR) && (pathLength + 1 > maxDistance);
 
 	if (isFarAwayTarget || distance < minAttackRange) {
 		priority >>= AT_FARAWAY_REDUCE_OFFSET; // save AT_THREAT_FACTOR if present
@@ -2568,7 +2629,8 @@ int TargetPriorityCalculate(const CUnit &attacker, const CUnit &dest)
 	}
 
 	// Calc distance factor (0-255)
-	priority |= (255 - (pathLength > 255 || pathLength < 0 ? 255 : pathLength)) << AT_DISTANCE_OFFSET;
+	priority |= (255 - (pathLength > 255 || pathLength < 0 ? 255 : pathLength))
+	         << AT_DISTANCE_OFFSET;
 
 	// Remaining HP (Health) (0..100)%
 	priority |= 100 - dest.Variable[HP_INDEX].Value * 100 / dest.Variable[HP_INDEX].Max;
@@ -2587,10 +2649,10 @@ int TargetPriorityCalculate(const CUnit &attacker, const CUnit &dest)
 */
 bool InReactRange(const CUnit &unit, const CUnit &target)
 {
-	const int distance 	= unit.MapDistanceTo(target);
-	const int range 	= (unit.Player->Type == PlayerTypes::PlayerPerson)
-						  ? unit.Type->ReactRangePerson
-						  : unit.Type->ReactRangeComputer;
+	const int distance = unit.MapDistanceTo(target);
+	const int range = (unit.Player->Type == PlayerTypes::PlayerPerson)
+	                    ? unit.Type->ReactRangePerson
+	                    : unit.Type->ReactRangeComputer;
 	return distance <= range;
 }
 
@@ -2604,14 +2666,15 @@ bool InReactRange(const CUnit &unit, const CUnit &target)
 */
 bool InAttackRange(const CUnit &unit, const CUnit &target)
 {
-	const int range 	= unit.Stats->Variables[ATTACKRANGE_INDEX].Max;
-	const int minRange 	= unit.Type->MinAttackRange;
-	const int distance 	= unit.Container ? unit.Container->MapDistanceTo(target)
-										 : unit.MapDistanceTo(target);
+	const int range = unit.Stats->Variables[ATTACKRANGE_INDEX].Max;
+	const int minRange = unit.Type->MinAttackRange;
+	const int distance =
+		unit.Container ? unit.Container->MapDistanceTo(target) : unit.MapDistanceTo(target);
 
 	return (minRange <= distance && distance <= range)
-		   && (!GameSettings.Inside
-			   || CheckObstaclesBetweenTiles(unit.tilePos, target.tilePos, MapFieldRocks | MapFieldForest));
+	    && (!GameSettings.Inside
+	        || CheckObstaclesBetweenTiles(
+				unit.tilePos, target.tilePos, MapFieldRocks | MapFieldForest));
 }
 
 /**
@@ -2625,16 +2688,15 @@ bool InAttackRange(const CUnit &unit, const CUnit &target)
 bool InAttackRange(const CUnit &unit, const Vec2i &tilePos)
 {
 	Assert(Map.Info.IsPointOnMap(tilePos));
-	const int range 	= unit.Stats->Variables[ATTACKRANGE_INDEX].Max;
-	const int minRange 	= unit.Type->MinAttackRange;
-	const int distance 	= unit.Container ? unit.Container->MapDistanceTo(tilePos)
-										 : unit.MapDistanceTo(tilePos);
+	const int range = unit.Stats->Variables[ATTACKRANGE_INDEX].Max;
+	const int minRange = unit.Type->MinAttackRange;
+	const int distance =
+		unit.Container ? unit.Container->MapDistanceTo(tilePos) : unit.MapDistanceTo(tilePos);
 
 	return (minRange <= distance && distance <= range)
-		   && (!GameSettings.Inside
-			   || CheckObstaclesBetweenTiles(unit.tilePos, tilePos, MapFieldRocks | MapFieldForest));
+	    && (!GameSettings.Inside
+	        || CheckObstaclesBetweenTiles(unit.tilePos, tilePos, MapFieldRocks | MapFieldForest));
 }
-
 
 /**
 **  Returns end position of randomly generated vector form srcPos in direction to/from dirUnit
@@ -2648,7 +2710,12 @@ bool InAttackRange(const CUnit &unit, const Vec2i &tilePos)
 **
 **  @return       	Position
 */
-Vec2i GetRndPosInDirection(const Vec2i &srcPos, const CUnit &dirUnit, const bool dirFrom, const int minRange, const int devRadius, const int rangeDev)
+Vec2i GetRndPosInDirection(const Vec2i &srcPos,
+                           const CUnit &dirUnit,
+                           const bool dirFrom,
+                           const int minRange,
+                           const int devRadius,
+                           const int rangeDev)
 {
 	const Vec2i dirPos = dirUnit.tilePos + dirUnit.Type->GetHalfTileSize();
 	return GetRndPosInDirection(srcPos, dirPos, dirFrom, minRange, devRadius, rangeDev);
@@ -2666,7 +2733,12 @@ Vec2i GetRndPosInDirection(const Vec2i &srcPos, const CUnit &dirUnit, const bool
 **
 **  @return       	Position
 */
-Vec2i GetRndPosInDirection(const Vec2i &srcPos, const Vec2i &dirPos, const bool dirFrom, const int minRange, const int devRadius, const int rangeDev)
+Vec2i GetRndPosInDirection(const Vec2i &srcPos,
+                           const Vec2i &dirPos,
+                           const bool dirFrom,
+                           const int minRange,
+                           const int devRadius,
+                           const int rangeDev)
 {
 	Vec2i pos = dirPos - srcPos;
 	pos *= dirFrom ? -1 : 1;
@@ -2686,7 +2758,8 @@ static void HitUnit_LastAttack(const CUnit *attacker, CUnit &target)
 	const unsigned long lastattack = target.Attacked;
 
 	target.Attacked = GameCycle ? GameCycle : 1;
-	if (target.Type->BoolFlag[WALL_INDEX].value || (lastattack && GameCycle <= lastattack + 2 * CYCLES_PER_SECOND)) {
+	if (target.Type->BoolFlag[WALL_INDEX].value
+	    || (lastattack && GameCycle <= lastattack + 2 * CYCLES_PER_SECOND)) {
 		return;
 	}
 	// NOTE: perhaps this should also be moved into the notify?
@@ -2698,12 +2771,9 @@ static void HitUnit_LastAttack(const CUnit *attacker, CUnit &target)
 		// If on same area ignore it for 2 minutes.
 		//
 		if (HelpMeLastCycle < GameCycle) {
-			if (!HelpMeLastCycle
-				|| HelpMeLastCycle + CYCLES_PER_SECOND * 120 < GameCycle
-				|| target.tilePos.x < HelpMeLastX - 14
-				|| target.tilePos.x > HelpMeLastX + 14
-				|| target.tilePos.y < HelpMeLastY - 14
-				|| target.tilePos.y > HelpMeLastY + 14) {
+			if (!HelpMeLastCycle || HelpMeLastCycle + CYCLES_PER_SECOND * 120 < GameCycle
+			    || target.tilePos.x < HelpMeLastX - 14 || target.tilePos.x > HelpMeLastX + 14
+			    || target.tilePos.y < HelpMeLastY - 14 || target.tilePos.y > HelpMeLastY + 14) {
 				HelpMeLastCycle = GameCycle + CYCLES_PER_SECOND * 2;
 				HelpMeLastX = target.tilePos.x;
 				HelpMeLastY = target.tilePos.y;
@@ -2722,12 +2792,15 @@ static void HitUnit_LastAttack(const CUnit *attacker, CUnit &target)
 
 static bool HitUnit_IsUnitWillDie(const CUnit *attacker, const CUnit &target, int damage)
 {
-	int shieldDamage = target.Variable[SHIELDPERMEABILITY_INDEX].Value < 100
-					   ? std::min(target.Variable[SHIELD_INDEX].Value, damage * (100 - target.Variable[SHIELDPERMEABILITY_INDEX].Value) / 100)
-					   : 0;
-	return (target.Variable[HP_INDEX].Value <= damage && attacker && attacker->Variable[SHIELDPIERCING_INDEX].Value)
-		   || (target.Variable[HP_INDEX].Value <= damage - shieldDamage)
-		   || (target.Variable[HP_INDEX].Value == 0);
+	int shieldDamage =
+		target.Variable[SHIELDPERMEABILITY_INDEX].Value < 100
+			? std::min(target.Variable[SHIELD_INDEX].Value,
+	                   damage * (100 - target.Variable[SHIELDPERMEABILITY_INDEX].Value) / 100)
+			: 0;
+	return (target.Variable[HP_INDEX].Value <= damage && attacker
+	        && attacker->Variable[SHIELDPIERCING_INDEX].Value)
+	    || (target.Variable[HP_INDEX].Value <= damage - shieldDamage)
+	    || (target.Variable[HP_INDEX].Value == 0);
 }
 
 static void HitUnit_IncreaseScoreForKill(CUnit &attacker, CUnit &target)
@@ -2754,9 +2827,11 @@ static void HitUnit_ApplyDamage(CUnit *attacker, CUnit &target, int damage)
 	if (attacker && attacker->Variable[SHIELDPIERCING_INDEX].Value) {
 		target.Variable[HP_INDEX].Value -= damage;
 	} else {
-		int shieldDamage = target.Variable[SHIELDPERMEABILITY_INDEX].Value < 100
-						   ? std::min(target.Variable[SHIELD_INDEX].Value, damage * (100 - target.Variable[SHIELDPERMEABILITY_INDEX].Value) / 100)
-						   : 0;
+		int shieldDamage =
+			target.Variable[SHIELDPERMEABILITY_INDEX].Value < 100
+				? std::min(target.Variable[SHIELD_INDEX].Value,
+		                   damage * (100 - target.Variable[SHIELDPERMEABILITY_INDEX].Value) / 100)
+				: 0;
 		if (shieldDamage) {
 			target.Variable[SHIELD_INDEX].Value -= shieldDamage;
 			clamp(&target.Variable[SHIELD_INDEX].Value, 0, target.Variable[SHIELD_INDEX].Max);
@@ -2775,10 +2850,9 @@ static void HitUnit_BuildingCapture(CUnit *attacker, CUnit &target, int damage)
 	// david: capture enemy buildings
 	// Only worker types can capture.
 	// Still possible to destroy building if not careful (too many attackers)
-	if (EnableBuildingCapture && attacker
-		&& target.Type->Building && target.Variable[HP_INDEX].Value <= damage * 3
-		&& attacker->IsEnemy(target)
-		&& attacker->Type->RepairRange) {
+	if (EnableBuildingCapture && attacker && target.Type->Building
+	    && target.Variable[HP_INDEX].Value <= damage * 3 && attacker->IsEnemy(target)
+	    && attacker->Type->RepairRange) {
 		target.ChangeOwner(*attacker->Player);
 		CommandStopUnit(*attacker); // Attacker shouldn't continue attack!
 	}
@@ -2802,12 +2876,15 @@ static void HitUnit_ShowImpactMissile(const CUnit &target)
 	const CUnitType &type = *target.Type;
 
 	if (target.Variable[SHIELD_INDEX].Value > 0
-		&& !type.Impact[ANIMATIONS_DEATHTYPES + 1].Name.empty()) { // shield impact
-		MakeMissile(*type.Impact[ANIMATIONS_DEATHTYPES + 1].Missile, targetPixelCenter, targetPixelCenter);
-	} else if (target.DamagedType && !type.Impact[target.DamagedType].Name.empty()) { // specific to damage type impact
+	    && !type.Impact[ANIMATIONS_DEATHTYPES + 1].Name.empty()) { // shield impact
+		MakeMissile(
+			*type.Impact[ANIMATIONS_DEATHTYPES + 1].Missile, targetPixelCenter, targetPixelCenter);
+	} else if (target.DamagedType
+	           && !type.Impact[target.DamagedType].Name.empty()) { // specific to damage type impact
 		MakeMissile(*type.Impact[target.DamagedType].Missile, targetPixelCenter, targetPixelCenter);
 	} else if (!type.Impact[ANIMATIONS_DEATHTYPES].Name.empty()) { // generic impact
-		MakeMissile(*type.Impact[ANIMATIONS_DEATHTYPES].Missile, targetPixelCenter, targetPixelCenter);
+		MakeMissile(
+			*type.Impact[ANIMATIONS_DEATHTYPES].Missile, targetPixelCenter, targetPixelCenter);
 	}
 }
 
@@ -2826,7 +2903,6 @@ static void HitUnit_ChangeVariable(CUnit &target, const Missile &missile)
 	}
 }
 
-
 static void HitUnit_Burning(CUnit &target)
 {
 	const int f = (100 * target.Variable[HP_INDEX].Value) / target.Variable[HP_INDEX].Max;
@@ -2835,7 +2911,8 @@ static void HitUnit_Burning(CUnit &target)
 	if (fire) {
 		const PixelPos targetPixelCenter = target.GetMapPixelPosCenter();
 		const PixelDiff offset(0, -PixelTileSize.y);
-		Missile *missile = MakeMissile(*fire, targetPixelCenter + offset, targetPixelCenter + offset);
+		Missile *missile =
+			MakeMissile(*fire, targetPixelCenter + offset, targetPixelCenter + offset);
 
 		missile->SourceUnit = &target;
 		target.Burning = 1;
@@ -2856,17 +2933,19 @@ static void HitUnit_RunAway(CUnit &target, const CUnit &attacker)
 static void HitUnit_AttackBack(CUnit &attacker, CUnit &target)
 {
 	const int underAttack = 128;
-	if (&attacker != target.CurrentOrder()->GetGoal()
-		&& attacker.Player != target.Player && target.IsEnemy(attacker)
-		&& CanTarget(*target.Type, *attacker.Type))	{
-
+	if (&attacker != target.CurrentOrder()->GetGoal() && attacker.Player != target.Player
+	    && target.IsEnemy(attacker) && CanTarget(*target.Type, *attacker.Type)) {
 		const UnitAction targetCurrAction = target.CurrentAction();
 		if (targetCurrAction == UnitAction::Attack) {
 			COrder_Attack &order = dynamic_cast<COrder_Attack &>(*target.CurrentOrder());
 			if (order.IsAutoTargeting() || target.Player->AiEnabled) {
 				if (attacker.IsVisibleAsGoal(*target.Player)) {
-					if (UnitReachable(target, attacker, target.Stats->Variables[ATTACKRANGE_INDEX].Max, false)) {
-						target.UnderAttack = underAttack; /// allow target to ignore non aggressive targets while searching attacker
+					if (UnitReachable(target,
+					                  attacker,
+					                  target.Stats->Variables[ATTACKRANGE_INDEX].Max,
+					                  false)) {
+						target.UnderAttack =
+							underAttack; /// allow target to ignore non aggressive targets while searching attacker
 						order.OfferNewTarget(target, attacker);
 					}
 					return;
@@ -2968,7 +3047,8 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 		return;
 	}
 
-	if (target.Variable[UNHOLYARMOR_INDEX].Value > 0 || target.Type->BoolFlag[INDESTRUCTIBLE_INDEX].value) {
+	if (target.Variable[UNHOLYARMOR_INDEX].Value > 0
+	    || target.Type->BoolFlag[INDESTRUCTIBLE_INDEX].value) {
 		// vladi: units with active UnholyArmour are invulnerable
 		return;
 	}
@@ -2977,7 +3057,8 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 		return;
 	}
 
-	Assert(damage != 0 && target.CurrentAction() != UnitAction::Die && !target.Type->BoolFlag[VANISHES_INDEX].value);
+	Assert(damage != 0 && target.CurrentAction() != UnitAction::Die
+	       && !target.Type->BoolFlag[VANISHES_INDEX].value);
 
 	if (GodMode) {
 		if (attacker && attacker->Player == ThisPlayer) {
@@ -3039,6 +3120,12 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 		HitUnit_Burning(target);
 	}
 
+	// Damage, death, and impact effects above are simulation; reactions below
+	// choose new orders and belong to the externally controlled policy.
+	if (IsWar1gusAi(*target.Player)) {
+		return;
+	}
+
 	/* Target Reaction on Hit */
 	if (target.Player->AiEnabled) {
 		if (target.CurrentOrder()->OnAiHitUnit(target, attacker, damage)) {
@@ -3051,14 +3138,13 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 	}
 
 	// Can't attack run away.
-	if (target.CanMove()
-		&& target.CurrentAction() == UnitAction::Still
-		&& (!CanTarget(*target.Type, *attacker->Type)
-			|| !target.IsAggressive()
-			|| (attacker->Type->BoolFlag[PERMANENTCLOAK_INDEX].value
-				&& !(attacker->IsVisible(*target.Player) || attacker->IsVisibleOnRadar(*target.Player))))
-		&& !(target.BoardCount && target.Type->BoolFlag[ATTACKFROMTRANSPORTER_INDEX].value == true)) {
-
+	if (target.CanMove() && target.CurrentAction() == UnitAction::Still
+	    && (!CanTarget(*target.Type, *attacker->Type) || !target.IsAggressive()
+	        || (attacker->Type->BoolFlag[PERMANENTCLOAK_INDEX].value
+	            && !(attacker->IsVisible(*target.Player)
+	                 || attacker->IsVisibleOnRadar(*target.Player))))
+	    && !(target.BoardCount
+	         && target.Type->BoolFlag[ATTACKFROMTRANSPORTER_INDEX].value == true)) {
 		HitUnit_RunAway(target, *attacker);
 		return;
 	}
@@ -3067,7 +3153,8 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 		target.Threshold = 0;
 	} else {
 		const int threshold = 30;
-		if (target.Threshold && target.CurrentOrder()->HasGoal() && target.CurrentOrder()->GetGoal() == attacker) {
+		if (target.Threshold && target.CurrentOrder()->HasGoal()
+		    && target.CurrentOrder()->GetGoal() == attacker) {
 			target.Threshold = threshold;
 			return;
 		}
@@ -3123,7 +3210,10 @@ int CUnit::MapDistanceTo(const Vec2i &pos) const
 **
 **  @return     The distance between the types.
 */
-int MapDistanceBetweenTypes(const CUnitType &src, const Vec2i &pos1, const CUnitType &dst, const Vec2i &pos2)
+int MapDistanceBetweenTypes(const CUnitType &src,
+                            const Vec2i &pos1,
+                            const CUnitType &dst,
+                            const Vec2i &pos2)
 {
 	int dx;
 	int dy;
@@ -3234,7 +3324,8 @@ bool CanTransport(const CUnit &transporter, const CUnit &unit)
 	if (transporter.BoardCount >= transporter.Type->MaxOnBoard) { // full
 		return false;
 	}
-	if (transporter.BoardCount + unit.Type->BoardSize > transporter.Type->MaxOnBoard) { // too big unit
+	if (transporter.BoardCount + unit.Type->BoardSize
+	    > transporter.Type->MaxOnBoard) { // too big unit
 		return false;
 	}
 
@@ -3328,7 +3419,8 @@ bool CUnit::IsUnusable(bool ignore_built_state) const
 */
 bool CUnit::IsAttackRanged(CUnit *goal, const Vec2i &goalPos)
 {
-	if (this->Variable[ATTACKRANGE_INDEX].Value <= 1) { //always return false if the units attack range is 1 or lower
+	if (this->Variable[ATTACKRANGE_INDEX].Value
+	    <= 1) { //always return false if the units attack range is 1 or lower
 		return false;
 	}
 

@@ -611,6 +611,11 @@ void AiReduceMadeInBuilt(PlayerAi &pai, const CUnitType &type)
 -- Callback Functions
 ----------------------------------------------------------------------------*/
 
+bool IsWar1gusAi(const CPlayer &player)
+{
+	return player.Ai && player.Ai->AiType && player.Ai->AiType->Name == "war1gus-ai";
+}
+
 /**
 **  Called if a Unit is Attacked
 **
@@ -619,6 +624,10 @@ void AiReduceMadeInBuilt(PlayerAi &pai, const CUnitType &type)
 */
 void AiHelpMe(const CUnit *attacker, CUnit &defender)
 {
+	if (IsWar1gusAi(*defender.Player)) {
+		return;
+	}
+
 	/* Friendly Fire - typical splash */
 	if (!attacker || attacker->Player->Index == defender.Player->Index) {
 		//FIXME - try react somehow
@@ -842,6 +851,9 @@ static void AiMoveUnitInTheWay(CUnit &unit)
 	for (CUnit *blockerPtr : UnitManager->GetUnits()) {
 		CUnit &blocker = *blockerPtr;
 
+		if (IsWar1gusAi(*blocker.Player)) {
+			continue;
+		}
 		if (blocker.IsUnusable()) {
 			continue;
 		}
@@ -924,6 +936,10 @@ static void AiMoveUnitInTheWay(CUnit &unit)
 */
 void AiCanNotMove(CUnit &unit)
 {
+	if (IsWar1gusAi(*unit.Player)) {
+		return;
+	}
+
 	const Vec2i &goalPos = unit.pathFinderData->input.GetGoalPos();
 	const int gw = unit.pathFinderData->input.GetGoalSize().x;
 	const int gh = unit.pathFinderData->input.GetGoalSize().y;
@@ -966,8 +982,10 @@ void AiTrainingComplete(CUnit &unit, CUnit &what)
 	Assert(unit.Player->Ai);
 	AiRemoveFromBuilt(*unit.Player->Ai, *what.Type);
 
-	unit.Player->Ai->Force.RemoveDeadUnit();
-	unit.Player->Ai->Force.Assign(what);
+	if (!IsWar1gusAi(*unit.Player)) {
+		unit.Player->Ai->Force.RemoveDeadUnit();
+		unit.Player->Ai->Force.Assign(what);
+	}
 }
 
 /**
@@ -1040,6 +1058,9 @@ void AiEachSecond(CPlayer &player)
 
 	if (AiPlayer->ScriptInterval == CYCLES_PER_SECOND) {
 		AiExecuteScript();
+	}
+	if (IsWar1gusAi(player)) {
+		return; // Keep the script scheduler, not the native policy managers.
 	}
 
 	//  Look if everything is fine.

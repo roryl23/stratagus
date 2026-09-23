@@ -33,15 +33,15 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "action/action_explore.h"
 
+#include "ai.h"
 #include "animation.h"
 #include "iolib.h"
 #include "map.h"
 #include "pathfinder.h"
 #include "script.h"
+#include "stratagus.h"
 #include "tile.h"
 #include "ui.h"
 #include "unit.h"
@@ -62,8 +62,7 @@ static void GetExplorationTarget(const CUnit &unit, Vec2i &dest)
 
 	while (triesLeft > 0) {
 		field = Map.Field(dest);
-		if (field && !field->playerInfo.IsExplored(player))
-			return; // unexplored, go here!
+		if (field && !field->playerInfo.IsExplored(player)) return; // unexplored, go here!
 		dest.x = SyncRand(Map.Info.MapWidth - 1) + 1;
 		dest.y = SyncRand(Map.Info.MapHeight - 1) + 1;
 		--triesLeft;
@@ -81,7 +80,6 @@ static void GetExplorationTarget(const CUnit &unit, Vec2i &dest)
 	order->goalPos = dest;
 	return order;
 }
-
 
 void COrder_Explore::Save(CFile &file, const CUnit &unit) const /* override */
 {
@@ -144,7 +142,6 @@ void COrder_Explore::UpdatePathFinderData(PathFinderInput &input) /* override */
 	input.SetGoal(this->goalPos, tileSize);
 }
 
-
 void COrder_Explore::Execute(CUnit &unit) /* override */
 {
 	if (IsWaiting(unit)) {
@@ -153,9 +150,7 @@ void COrder_Explore::Execute(CUnit &unit) /* override */
 	StopWaiting(unit);
 
 	switch (DoActionMove(unit)) {
-		case PF_FAILED:
-			this->WaitingCycle = 0;
-			break;
+		case PF_FAILED: this->WaitingCycle = 0; break;
 		case PF_UNREACHABLE:
 			// Increase range and try again
 			this->WaitingCycle = 1;
@@ -164,17 +159,24 @@ void COrder_Explore::Execute(CUnit &unit) /* override */
 
 		case PF_REACHED:
 		{
+			if (IsWar1gusAi(*unit.Player)) {
+				this->Finished = true;
+				break;
+			}
 			this->WaitingCycle = 1;
 			this->Range = 0;
 			// pick a new place to explore
 			GetExplorationTarget(unit, this->goalPos);
-		}
-			break;
+		} break;
 		case PF_WAIT:
 		{
 			// Wait for a while then give up
 			this->WaitingCycle++;
 			if (this->WaitingCycle == 5) {
+				if (IsWar1gusAi(*unit.Player)) {
+					this->Finished = true;
+					break;
+				}
 				this->WaitingCycle = 0;
 				this->Range = 0;
 				// pick a new place to explore
@@ -182,8 +184,7 @@ void COrder_Explore::Execute(CUnit &unit) /* override */
 
 				unit.pathFinderData->output.Cycles = 0; //moving counter
 			}
-		}
-			break;
+		} break;
 		default: // moving
 			this->WaitingCycle = 0;
 			break;

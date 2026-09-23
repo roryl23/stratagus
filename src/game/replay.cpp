@@ -251,9 +251,22 @@ static constexpr const char *AiVerbNames[] = {"stop",
                                               "build",
                                               "train",
                                               "cast-auto",
-                                              "research"};
+                                              "research",
+                                              "patrol",
+                                              "attack-ground",
+                                              "follow",
+                                              "board",
+                                              "return-goods",
+                                              "unload",
+                                              "upgrade-to",
+                                              "cast-unit",
+                                              "cast-self",
+                                              "cancel-build",
+                                              "cancel-research",
+                                              "cancel-upgrade-to",
+                                              "cancel-training"};
 static_assert(sizeof(AiVerbNames) / sizeof(*AiVerbNames)
-              == static_cast<size_t>(AiCommandVerb::Research) + 1);
+              == static_cast<size_t>(AiCommandVerb::CancelTraining) + 1);
 
 static void PrintLogCommand(const LogEntry &log, CFile &file)
 {

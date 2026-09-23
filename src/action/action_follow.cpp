@@ -33,30 +33,29 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "action/action_follow.h"
 
+#include "ai.h"
 #include "animation.h"
 #include "iolib.h"
 #include "luacallback.h"
 #include "missile.h"
 #include "pathfinder.h"
 #include "script.h"
+#include "stratagus.h"
 #include "ui.h"
 #include "unit.h"
 #include "unit_find.h"
 #include "unittype.h"
 #include "video.h"
 
-enum {
+enum
+{
 	State_Init = 0,
 	State_Initialized = 1,
 
 	State_TargetReached = 128,
 };
-
-
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -157,7 +156,6 @@ void COrder_Follow::UpdatePathFinderData(PathFinderInput &input) /* override */
 	}
 }
 
-
 void COrder_Follow::Execute(CUnit &unit) /* override */
 {
 	if (IsWaiting(unit)) {
@@ -168,11 +166,10 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 
 	// Reached target
 	if (this->State == State_TargetReached) {
-
 		if (!goal || !goal->IsVisibleAsGoal(*unit.Player)) {
 			DebugPrint("Goal gone\n");
 			this->Finished = true;
-			return ;
+			return;
 		}
 
 		// Don't follow after immobile units
@@ -185,7 +182,7 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 			// Move to the next order
 			if (unit.Orders.size() > 1) {
 				this->Finished = true;
-				return ;
+				return;
 			}
 
 			unit.Wait = 10;
@@ -193,7 +190,7 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 				this->Range = 1;
 				this->State = State_Init;
 			}
-			return ;
+			return;
 		}
 		this->State = State_Init;
 	}
@@ -205,15 +202,17 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 			// Some tries to reach the goal
 			this->Range++;
 			break;
-		case PF_REACHED: {
+		case PF_REACHED:
+		{
 			if (!goal) { // goal has died
 				this->Finished = true;
-				return ;
+				return;
 			}
 			// Handle Teleporter Units
 			// FIXME: BAD HACK
 			// goal shouldn't be busy and portal should be alive
-			if (goal->Type->BoolFlag[TELEPORTER_INDEX].value && goal->Goal && goal->Goal->IsAlive() && unit.MapDistanceTo(*goal) <= 1) {
+			if (goal->Type->BoolFlag[TELEPORTER_INDEX].value && goal->Goal && goal->Goal->IsAlive()
+			    && unit.MapDistanceTo(*goal) <= 1) {
 				if (!goal->IsIdle()) { // wait
 					unit.Wait = 10;
 					return;
@@ -252,17 +251,17 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 				    || (dest.NewOrder->Action == UnitAction::Board
 				        && unit.Type->MoveType != EMovement::Land)) {
 					this->Finished = true;
-					return ;
+					return;
 				} else {
 					if (dest.NewOrder->HasGoal()) {
 						if (dest.NewOrder->GetGoal()->Destroyed) {
 							dest.NewOrder = nullptr;
 							this->Finished = true;
-							return ;
+							return;
 						}
 						unit.Orders.insert(unit.Orders.begin() + 1, dest.NewOrder->Clone());
 						this->Finished = true;
-						return ;
+						return;
 					}
 				}
 			}
@@ -270,8 +269,7 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 			this->State = State_TargetReached;
 		}
 			[[fallthrough]];
-		default:
-			break;
+		default: break;
 	}
 
 	// Target destroyed?
@@ -283,14 +281,15 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 	}
 
 	if (unit.Anim.Unbreakable) {
-		return ;
+		return;
 	}
 	// If our leader is dead or stops or attacks:
 	// Attack any enemy in reaction range.
 	// If don't set the goal, the unit can than choose a
 	//  better goal if moving nearer to enemy.
-	if (unit.Type->CanAttack
-		&& (!goal || goal->CurrentAction() == UnitAction::Attack || goal->CurrentAction() == UnitAction::Still)) {
+	if (!IsWar1gusAi(*unit.Player) && unit.Type->CanAttack
+	    && (!goal || goal->CurrentAction() == UnitAction::Attack
+	        || goal->CurrentAction() == UnitAction::Still)) {
 		CUnit *target = AttackUnitsInReactRange(unit);
 		if (target) {
 			// Save current command to come back.
@@ -300,7 +299,8 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 			}
 
 			this->Finished = true;
-			unit.Orders.insert(unit.Orders.begin() + 1, COrder::NewActionAttack(unit, target->tilePos));
+			unit.Orders.insert(unit.Orders.begin() + 1,
+			                   COrder::NewActionAttack(unit, target->tilePos));
 
 			if (savedOrder != nullptr) {
 				unit.SavedOrder = std::move(savedOrder);
