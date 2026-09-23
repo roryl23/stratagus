@@ -33,23 +33,234 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "commands.h"
 
+#include "../ai/ai_local.h"
 #include "actions.h"
+#include "depend.h"
 #include "fov.h"
+#include "map.h"
 #include "net_message.h"
 #include "network.h"
+#include "player.h"
 #include "replay.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "unit.h"
 #include "unit_manager.h"
 #include "unittype.h"
+#include "upgrade_structs.h"
 
 /*----------------------------------------------------------------------------
 --  Functions
 ----------------------------------------------------------------------------*/
+
+namespace
+{
+static CUnit *AiBatchUnit(uint16_t slot)
+{
+	if (slot >= UnitManager->GetUsedSlotCount()) {
+		return nullptr;
+	}
+	CUnit &unit = UnitManager->GetSlotUnit(slot);
+	return !unit.Released && unit.Type && unit.Player && unit.IsAliveOnMap() ? &unit : nullptr;
+}
+
+static bool AiBatchProducer(const std::vector<std::vector<CUnitType *>> &table,
+                            size_t index,
+                            const CUnitType *actorType)
+{
+	return index < table.size() && ranges::find(table[index], actorType) != table[index].end();
+}
+
+// Unlike CPlayer::CheckLimits, this preflight must not notify or play sounds
+// merely because a stale network decision is being rejected.
+static bool AiBatchCanAffordType(const CPlayer &player, const CUnitType &type)
+{
+	const int units = player.GetUnitCount();
+	const int demand = type.Stats[player.Index].Variables[DEMAND_INDEX].Value;
+	return !(type.Building && player.NumBuildings >= player.BuildingLimit)
+	    && !(!type.Building && units - player.NumBuildings >= player.UnitLimit)
+	    && !(demand && player.Demand + demand > player.Supply) && units < player.TotalUnitLimit
+	    && player.GetUnitTotalCount(type) < player.Allow.Units[type.Slot]
+	    && !player.CheckCosts(type.Stats[player.Index].Costs, false);
+}
+
+static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlayer &player)
+{
+	CUnit *actor = AiBatchUnit(command.actor);
+	if (!actor || actor->Player != &player) {
+		return false;
+	}
+	const auto position = Vec2i(command.x, command.y);
+	switch (command.verb) {
+		case AiCommandVerb::Stop:
+		case AiCommandVerb::StandGround:
+		case AiCommandVerb::Explore: return true;
+		case AiCommandVerb::Attack:
+		case AiCommandVerb::Resource:
+		case AiCommandVerb::Repair:
+		{
+			CUnit *target = AiBatchUnit(command.target);
+			if (!target) {
+				return false;
+			}
+			switch (command.verb) {
+				case AiCommandVerb::Attack: return target->IsEnemy(player);
+				case AiCommandVerb::Resource: return target->Type->GivesResource != 0;
+				case AiCommandVerb::Repair: return target->Player == &player;
+				default: return false;
+			}
+		}
+		case AiCommandVerb::ResourceLocation:
+		case AiCommandVerb::Move: return Map.Info.IsPointOnMap(position);
+		case AiCommandVerb::CastPosition:
+		case AiCommandVerb::CastAuto:
+		{
+			if (command.target >= SpellTypeTable.size() || !SpellTypeTable[command.target]) {
+				return false;
+			}
+			const SpellType &spell = *SpellTypeTable[command.target];
+			if (spell.Slot >= actor->Type->CanCastSpell.size()
+			    || !actor->Type->CanCastSpell[spell.Slot]
+			    || !SpellIsAvailable(player, spell.Slot)) {
+				return false;
+			}
+			if (command.verb == AiCommandVerb::CastAuto) {
+				return ((player.AiEnabled && spell.AICast) || spell.AutoCast)
+				    && actor->Variable[MANA_INDEX].Value >= spell.ManaCost
+				    && !player.CheckCosts(spell.Costs, false)
+				    && (spell.Slot >= actor->SpellCoolDownTimers.size()
+				        || !actor->SpellCoolDownTimers[spell.Slot]);
+			}
+			return spell.Target == ETarget::Position && Map.Info.IsPointOnMap(position)
+			    && CanCastSpell(*actor, spell, nullptr, position);
+		}
+		case AiCommandVerb::BuildAt:
+		case AiCommandVerb::Train:
+		{
+			const auto &types = getUnitTypes();
+			if (command.target >= types.size() || !types[command.target]) {
+				return false;
+			}
+			const CUnitType &type = *types[command.target];
+			if (!actor->IsIdle() || !CheckDependByType(player, type)
+			    || !AiBatchCanAffordType(player, type)) {
+				return false;
+			}
+			if (command.verb == AiCommandVerb::Train) {
+				return !type.Building && AiBatchProducer(AiHelpers.Train(), type.Slot, actor->Type);
+			}
+			return type.Building && AiBatchProducer(AiHelpers.Build(), type.Slot, actor->Type)
+			    && Map.Info.IsPointOnMap(position)
+			    && CanBuildUnitType(actor, type, position, 0).has_value();
+		}
+		case AiCommandVerb::Research:
+		{
+			if (command.target >= AllUpgrades.size() || !AllUpgrades[command.target]
+			    || !actor->IsIdle()) {
+				return false;
+			}
+			const CUpgrade &upgrade = *AllUpgrades[command.target];
+			return CheckDependByIdent(player, upgrade.Ident)
+			    && !player.CheckCosts(upgrade.Costs, false)
+			    && (AiBatchProducer(AiHelpers.Research(), command.target, actor->Type)
+			        || AiBatchProducer(AiHelpers.SingleResearch(), command.target, actor->Type));
+		}
+		case AiCommandVerb::Build: return false; // Resolved into BuildAt before publication.
+	}
+	return false;
+}
+} // namespace
+
+bool CanExecuteAiCommandBatch(const AiCommandBatch &batch)
+{
+	if (batch.player >= NumPlayers || Players[batch.player].Type != PlayerTypes::PlayerComputer
+	    || batch.commands.empty() || batch.commands.size() > AiCommandBatch::MaxCommands) {
+		return false;
+	}
+	const CPlayer &player = Players[batch.player];
+	if (batch.commands.size() > 1) {
+		// Orders on different actors cannot consume each other's resources or
+		// invalidate later orders. Economy and spell actions remain singletons.
+		for (size_t i = 0; i < batch.commands.size(); ++i) {
+			const AiCommandPrimitive &command = batch.commands[i];
+			if (command.verb != AiCommandVerb::Move && command.verb != AiCommandVerb::Attack) {
+				return false;
+			}
+			for (size_t earlier = 0; earlier < i; ++earlier) {
+				if (batch.commands[earlier].actor == command.actor) {
+					return false;
+				}
+			}
+		}
+	}
+	for (const AiCommandPrimitive &command : batch.commands) {
+		if (!AiBatchValidPrimitive(command, player)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool ExecuteAiCommandBatch(const AiCommandBatch &batch)
+{
+	if (!CanExecuteAiCommandBatch(batch)) {
+		return false;
+	}
+	CommandLogAiBatch(batch);
+	for (const AiCommandPrimitive &command : batch.commands) {
+		CUnit &actor = UnitManager->GetSlotUnit(command.actor);
+		const Vec2i position(command.x, command.y);
+		switch (command.verb) {
+			case AiCommandVerb::Stop: CommandStopUnit(actor); break;
+			case AiCommandVerb::StandGround: CommandStandGround(actor, EFlushMode::On); break;
+			case AiCommandVerb::Explore: CommandExplore(actor, EFlushMode::On); break;
+			case AiCommandVerb::Attack:
+			{
+				CUnit &target = UnitManager->GetSlotUnit(command.target);
+				CommandAttack(actor, target.tilePos, &target, EFlushMode::On);
+				break;
+			}
+			case AiCommandVerb::Resource:
+				CommandResource(actor, UnitManager->GetSlotUnit(command.target), EFlushMode::On);
+				break;
+			case AiCommandVerb::Repair:
+			{
+				CUnit &target = UnitManager->GetSlotUnit(command.target);
+				CommandRepair(actor, target.tilePos, &target, EFlushMode::On);
+				break;
+			}
+			case AiCommandVerb::ResourceLocation:
+				CommandResourceLoc(actor, position, EFlushMode::On);
+				break;
+			case AiCommandVerb::Move: CommandMove(actor, position, EFlushMode::On); break;
+			case AiCommandVerb::CastPosition:
+				CommandSpellCast(actor,
+				                 position,
+				                 nullptr,
+				                 *SpellTypeTable[command.target],
+				                 EFlushMode::On,
+				                 false);
+				break;
+			case AiCommandVerb::BuildAt:
+				CommandBuildBuilding(
+					actor, position, *getUnitTypes()[command.target], EFlushMode::On);
+				break;
+			case AiCommandVerb::Train:
+				CommandTrainUnit(actor, *getUnitTypes()[command.target], EFlushMode::On);
+				break;
+			case AiCommandVerb::CastAuto:
+				AutoCastSpell(actor, *SpellTypeTable[command.target]);
+				break;
+			case AiCommandVerb::Research:
+				CommandResearch(actor, *AllUpgrades[command.target], EFlushMode::On);
+				break;
+			case AiCommandVerb::Build: break; // Rejected by preflight.
+		}
+	}
+	return true;
+}
 
 /**
 ** Send command: Unit stop.
@@ -163,7 +374,8 @@ void SendCommandAutoRepair(CUnit &unit, int on)
 		CommandLog("auto-repair", &unit, EFlushMode::On, on, -1, nullptr, nullptr, 0);
 		CommandAutoRepair(unit, on);
 	} else {
-		NetworkSendCommand(MessageCommandAutoRepair, unit, on, -1, nullptr, nullptr, EFlushMode::On);
+		NetworkSendCommand(
+			MessageCommandAutoRepair, unit, on, -1, nullptr, nullptr, EFlushMode::On);
 	}
 }
 
@@ -382,12 +594,17 @@ void SendCommandTrainUnit(CUnit &unit, CUnitType &what, EFlushMode flush)
 void SendCommandCancelTraining(CUnit &unit, int slot, const CUnitType *type)
 {
 	if (IsReplayGame()) {
-		CommandLog("cancel-train", &unit, EFlushMode::On, -1, -1, nullptr,
-				   type ? type->Ident.c_str() : nullptr, slot);
+		CommandLog("cancel-train",
+		           &unit,
+		           EFlushMode::On,
+		           -1,
+		           -1,
+		           nullptr,
+		           type ? type->Ident.c_str() : nullptr,
+		           slot);
 		CommandCancelTraining(unit, slot, type);
 	} else {
-		NetworkSendCommand(MessageCommandCancelTrain, unit, slot, 0, nullptr,
-						   type, EFlushMode::On);
+		NetworkSendCommand(MessageCommandCancelTrain, unit, slot, 0, nullptr, type, EFlushMode::On);
 	}
 }
 
@@ -419,8 +636,8 @@ void SendCommandCancelUpgradeTo(CUnit &unit)
 		CommandLog("cancel-upgrade-to", &unit, EFlushMode::On, -1, -1, nullptr, nullptr, -1);
 		CommandCancelUpgradeTo(unit);
 	} else {
-		NetworkSendCommand(MessageCommandCancelUpgrade, unit,
-						   0, 0, nullptr, nullptr, EFlushMode::On);
+		NetworkSendCommand(
+			MessageCommandCancelUpgrade, unit, 0, 0, nullptr, nullptr, EFlushMode::On);
 	}
 }
 
@@ -437,8 +654,7 @@ void SendCommandResearch(CUnit &unit, CUpgrade &what, EFlushMode flush)
 		CommandLog("research", &unit, flush, -1, -1, nullptr, what.Ident.c_str(), -1);
 		CommandResearch(unit, what, flush);
 	} else {
-		NetworkSendCommand(MessageCommandResearch, unit,
-						   what.ID, 0, nullptr, nullptr, flush);
+		NetworkSendCommand(MessageCommandResearch, unit, what.ID, 0, nullptr, nullptr, flush);
 	}
 }
 
@@ -453,8 +669,8 @@ void SendCommandCancelResearch(CUnit &unit)
 		CommandLog("cancel-research", &unit, EFlushMode::On, -1, -1, nullptr, nullptr, -1);
 		CommandCancelResearch(unit);
 	} else {
-		NetworkSendCommand(MessageCommandCancelResearch, unit,
-						   0, 0, nullptr, nullptr, EFlushMode::On);
+		NetworkSendCommand(
+			MessageCommandCancelResearch, unit, 0, 0, nullptr, nullptr, EFlushMode::On);
 	}
 }
 
@@ -473,8 +689,8 @@ void SendCommandSpellCast(CUnit &unit, const Vec2i &pos, CUnit *dest, int spelli
 		CommandLog("spell-cast", &unit, flush, pos.x, pos.y, dest, nullptr, spellid);
 		CommandSpellCast(unit, pos, dest, *SpellTypeTable[spellid], flush);
 	} else {
-		NetworkSendCommand(MessageCommandSpellCast + spellid,
-						   unit, pos.x, pos.y, dest, nullptr, flush);
+		NetworkSendCommand(
+			MessageCommandSpellCast + spellid, unit, pos.x, pos.y, dest, nullptr, flush);
 	}
 }
 
@@ -491,8 +707,8 @@ void SendCommandAutoSpellCast(CUnit &unit, int spellid, int on)
 		CommandLog("auto-spell-cast", &unit, EFlushMode::On, on, -1, nullptr, nullptr, spellid);
 		CommandAutoSpellCast(unit, spellid, on);
 	} else {
-		NetworkSendCommand(MessageCommandSpellCast + spellid,
-						   unit, on, -1, nullptr, nullptr, EFlushMode::On);
+		NetworkSendCommand(
+			MessageCommandSpellCast + spellid, unit, on, -1, nullptr, nullptr, EFlushMode::On);
 	}
 }
 
@@ -516,8 +732,7 @@ void SendCommandDiplomacy(int player, EDiplomacy state, int opponent)
 		           -1);
 		CommandDiplomacy(player, state, opponent);
 	} else {
-		NetworkSendExtendedCommand(ExtendedMessageDiplomacy,
-								   -1, player, int(state), opponent, 0);
+		NetworkSendExtendedCommand(ExtendedMessageDiplomacy, -1, player, int(state), opponent, 0);
 	}
 }
 
@@ -532,16 +747,15 @@ void SendCommandSharedVision(int player, bool state, int opponent)
 {
 	if (IsReplayGame()) {
 		if (state == false) {
-			CommandLog("shared-vision", nullptr, EFlushMode::Off, player, opponent,
-					   nullptr, "0", -1);
+			CommandLog(
+				"shared-vision", nullptr, EFlushMode::Off, player, opponent, nullptr, "0", -1);
 		} else {
-			CommandLog("shared-vision", nullptr, EFlushMode::Off, player, opponent,
-					   nullptr, "1", -1);
+			CommandLog(
+				"shared-vision", nullptr, EFlushMode::Off, player, opponent, nullptr, "1", -1);
 		}
 		CommandSharedVision(player, state, opponent);
 	} else {
-		NetworkSendExtendedCommand(ExtendedMessageSharedVision,
-								   -1, player, state, opponent, 0);
+		NetworkSendExtendedCommand(ExtendedMessageSharedVision, -1, player, state, opponent, 0);
 	}
 }
 
@@ -563,8 +777,8 @@ void SendCommandSharedVision(int player, bool state, int opponent)
 ** @param y        optional y map position.
 ** @param dstnr    optional destination unit.
 */
-void ExecCommand(unsigned char msgnr, UnitRef unum,
-				 unsigned short x, unsigned short y, UnitRef dstnr)
+void ExecCommand(
+	unsigned char msgnr, UnitRef unum, unsigned short x, unsigned short y, UnitRef dstnr)
 {
 	CUnit &unit = UnitManager->GetSlotUnit(unum);
 	const Vec2i pos(x, y);
@@ -583,12 +797,9 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 	// Note: destroyed destination unit is handled by the action routines.
 
 	switch (msgnr & 0x7F) {
-		case MessageSync:
-			return;
-		case MessageQuit:
-			return;
-		case MessageChat:
-			return;
+		case MessageSync: return;
+		case MessageQuit: return;
+		case MessageChat: return;
 
 		case MessageCommandStop:
 			CommandLog("stop", &unit, EFlushMode::On, -1, -1, nullptr, nullptr, -1);
@@ -598,8 +809,9 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			CommandLog("stand-ground", &unit, flush, -1, -1, nullptr, nullptr, -1);
 			CommandStandGround(unit, flush);
 			break;
-		case MessageCommandDefend: {
-			if (dstnr != (unsigned short)0xFFFF) {
+		case MessageCommandDefend:
+		{
+			if (dstnr != (unsigned short) 0xFFFF) {
 				CUnit &dest = UnitManager->GetSlotUnit(dstnr);
 				Assert(dest.Type);
 				CommandLog("defend", &unit, flush, -1, -1, &dest, nullptr, -1);
@@ -607,8 +819,9 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			}
 			break;
 		}
-		case MessageCommandFollow: {
-			if (dstnr != (unsigned short)0xFFFF) {
+		case MessageCommandFollow:
+		{
+			if (dstnr != (unsigned short) 0xFFFF) {
 				CUnit &dest = UnitManager->GetSlotUnit(dstnr);
 				Assert(dest.Type);
 				CommandLog("follow", &unit, flush, -1, -1, &dest, nullptr, -1);
@@ -620,9 +833,10 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			CommandLog("move", &unit, flush, pos.x, pos.y, nullptr, nullptr, -1);
 			CommandMove(unit, pos, flush);
 			break;
-		case MessageCommandRepair: {
+		case MessageCommandRepair:
+		{
 			CUnit *dest = nullptr;
-			if (dstnr != (unsigned short)0xFFFF) {
+			if (dstnr != (unsigned short) 0xFFFF) {
 				dest = &UnitManager->GetSlotUnit(dstnr);
 				Assert(dest->Type);
 			}
@@ -634,9 +848,10 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			CommandLog("auto-repair", &unit, flush, arg1, arg2, nullptr, nullptr, 0);
 			CommandAutoRepair(unit, arg1);
 			break;
-		case MessageCommandAttack: {
+		case MessageCommandAttack:
+		{
 			CUnit *dest = nullptr;
-			if (dstnr != (unsigned short)0xFFFF) {
+			if (dstnr != (unsigned short) 0xFFFF) {
 				dest = &UnitManager->GetSlotUnit(dstnr);
 				Assert(dest->Type);
 			}
@@ -652,8 +867,9 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			CommandLog("patrol", &unit, flush, pos.x, pos.y, nullptr, nullptr, -1);
 			CommandPatrolUnit(unit, pos, flush);
 			break;
-		case MessageCommandBoard: {
-			if (dstnr != (unsigned short)0xFFFF) {
+		case MessageCommandBoard:
+		{
+			if (dstnr != (unsigned short) 0xFFFF) {
 				CUnit &dest = UnitManager->GetSlotUnit(dstnr);
 				Assert(dest.Type);
 				CommandLog("board", &unit, flush, arg1, arg2, &dest, nullptr, -1);
@@ -661,9 +877,10 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			}
 			break;
 		}
-		case MessageCommandUnload: {
+		case MessageCommandUnload:
+		{
 			CUnit *dest = nullptr;
-			if (dstnr != (unsigned short)0xFFFF) {
+			if (dstnr != (unsigned short) 0xFFFF) {
 				dest = &UnitManager->GetSlotUnit(dstnr);
 				Assert(dest->Type);
 			}
@@ -694,8 +911,9 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			CommandLog("resource-loc", &unit, flush, pos.x, pos.y, nullptr, nullptr, -1);
 			CommandResourceLoc(unit, pos, flush);
 			break;
-		case MessageCommandResource: {
-			if (dstnr != (unsigned short)0xFFFF) {
+		case MessageCommandResource:
+		{
+			if (dstnr != (unsigned short) 0xFFFF) {
 				CUnit &dest = UnitManager->GetSlotUnit(dstnr);
 				Assert(dest.Type);
 				CommandLog("resource", &unit, flush, -1, -1, &dest, nullptr, -1);
@@ -703,8 +921,10 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			}
 			break;
 		}
-		case MessageCommandReturn: {
-			CUnit *dest = (dstnr != (unsigned short)0xFFFF) ? &UnitManager->GetSlotUnit(dstnr) : nullptr;
+		case MessageCommandReturn:
+		{
+			CUnit *dest =
+				(dstnr != (unsigned short) 0xFFFF) ? &UnitManager->GetSlotUnit(dstnr) : nullptr;
 			CommandLog("return", &unit, flush, -1, -1, dest, nullptr, -1);
 			CommandReturnGoods(unit, dest, flush);
 			break;
@@ -716,18 +936,29 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			break;
 		case MessageCommandCancelTrain:
 			// We need (short)x for the last slot -1
-			if (dstnr != (unsigned short)0xFFFF) {
-				CommandLog("cancel-train", &unit, EFlushMode::On, -1, -1, nullptr,
+			if (dstnr != (unsigned short) 0xFFFF) {
+				CommandLog("cancel-train",
+				           &unit,
+				           EFlushMode::On,
+				           -1,
+				           -1,
+				           nullptr,
 				           getUnitTypes()[dstnr]->Ident.c_str(),
 				           (short) x);
 				CommandCancelTraining(unit, (short) x, getUnitTypes()[dstnr]);
 			} else {
-				CommandLog("cancel-train", &unit, EFlushMode::On, -1, -1, nullptr, nullptr, (short)x);
-				CommandCancelTraining(unit, (short)x, nullptr);
+				CommandLog(
+					"cancel-train", &unit, EFlushMode::On, -1, -1, nullptr, nullptr, (short) x);
+				CommandCancelTraining(unit, (short) x, nullptr);
 			}
 			break;
 		case MessageCommandUpgrade:
-			CommandLog("upgrade-to", &unit, flush, -1, -1, nullptr,
+			CommandLog("upgrade-to",
+			           &unit,
+			           flush,
+			           -1,
+			           -1,
+			           nullptr,
 			           getUnitTypes()[dstnr]->Ident.c_str(),
 			           -1);
 			CommandUpgradeTo(unit, *getUnitTypes()[dstnr], flush);
@@ -737,19 +968,20 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 			CommandCancelUpgradeTo(unit);
 			break;
 		case MessageCommandResearch:
-			CommandLog("research", &unit, flush, -1, -1, nullptr,
-					   AllUpgrades[arg1]->Ident.c_str(), -1);
+			CommandLog(
+				"research", &unit, flush, -1, -1, nullptr, AllUpgrades[arg1]->Ident.c_str(), -1);
 			CommandResearch(unit, *AllUpgrades[arg1], flush);
 			break;
 		case MessageCommandCancelResearch:
 			CommandLog("cancel-research", &unit, EFlushMode::On, -1, -1, nullptr, nullptr, -1);
 			CommandCancelResearch(unit);
 			break;
-		default: {
+		default:
+		{
 			int id = (msgnr & 0x7f) - MessageCommandSpellCast;
-			if (arg2 != (unsigned short)0xFFFF) {
+			if (arg2 != (unsigned short) 0xFFFF) {
 				CUnit *dest = nullptr;
-				if (dstnr != (unsigned short)0xFFFF) {
+				if (dstnr != (unsigned short) 0xFFFF) {
 					dest = &UnitManager->GetSlotUnit(dstnr);
 					Assert(dest->Type);
 				}
@@ -774,14 +1006,18 @@ void ExecCommand(unsigned char msgnr, UnitRef unum,
 ** @param arg3     Messe argument 3
 ** @param arg4     Messe argument 4
 */
-void ExecExtendedCommand(unsigned char type, int status,
-						 unsigned char arg1, unsigned short arg2, unsigned short arg3,
-						 unsigned short arg4)
+void ExecExtendedCommand(unsigned char type,
+                         int status,
+                         unsigned char arg1,
+                         unsigned short arg2,
+                         unsigned short arg3,
+                         unsigned short arg4)
 {
 	// Note: destroyed units are handled by the action routines.
 
 	switch (type) {
-		case ExtendedMessageDiplomacy: {
+		case ExtendedMessageDiplomacy:
+		{
 			const auto diplomacy = EDiplomacy(arg3);
 			CommandLog("diplomacy",
 			           nullptr,
@@ -812,19 +1048,18 @@ void ExecExtendedCommand(unsigned char type, int status,
 			}
 			break;
 		case ExtendedMessageFieldOfViewDB:
-			{
-				/// arg1: 0:cShadowCasting / 1:cSimpleRadial
-				FieldOfViewTypes fovType = arg1 == 0 ? FieldOfViewTypes::cShadowCasting
-										 : arg1 == 1 ? FieldOfViewTypes::cSimpleRadial
-													 : FieldOfViewTypes::NumOfTypes;
-				if (fovType < FieldOfViewTypes::NumOfTypes) {
-					FieldOfView.SetType(fovType);
-					/// CommandLog(...);
-				} else {
-					/// CommandLog(...);
-				}
+		{
+			/// arg1: 0:cShadowCasting / 1:cSimpleRadial
+			FieldOfViewTypes fovType = arg1 == 0 ? FieldOfViewTypes::cShadowCasting
+			                         : arg1 == 1 ? FieldOfViewTypes::cSimpleRadial
+			                                     : FieldOfViewTypes::NumOfTypes;
+			if (fovType < FieldOfViewTypes::NumOfTypes) {
+				FieldOfView.SetType(fovType);
+				/// CommandLog(...);
+			} else {
+				/// CommandLog(...);
 			}
-			break;
+		} break;
 		case ExtendedMessageMapFieldsOpacityDB:
 			/// Arg2: Opaque fields flags
 			FieldOfView.SetOpaqueFields(arg2);

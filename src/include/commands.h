@@ -34,6 +34,10 @@
 
 #include "vec2i.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
 /*----------------------------------------------------------------------------
 --  Declarations
 ----------------------------------------------------------------------------*/
@@ -50,6 +54,46 @@ enum class EFlushMode
 	Off = 0,
 	On = 1
 };
+
+/// A bounded AI decision, executed as one lockstep item and one replay record.
+enum class AiCommandVerb : uint8_t
+{
+	Stop,
+	StandGround,
+	Explore,
+	Attack,
+	Resource,
+	Repair,
+	ResourceLocation,
+	Move,
+	CastPosition,
+	BuildAt,
+	Build,
+	Train,
+	CastAuto,
+	Research
+};
+
+struct AiCommandPrimitive
+{
+	AiCommandVerb verb = AiCommandVerb::Stop;
+	uint16_t actor = 0;
+	uint16_t x = 0;
+	uint16_t y = 0;
+	uint16_t target = 0; // Unit, type, spell, or upgrade slot, according to verb.
+};
+
+struct AiCommandBatch
+{
+	static constexpr size_t MaxCommands = 32;
+	uint8_t player = 0;
+	uint32_t sequence = 0;
+	std::vector<AiCommandPrimitive> commands;
+};
+
+extern bool CanExecuteAiCommandBatch(const AiCommandBatch &batch);
+/// Entire batch is checked before any command can mutate simulation state.
+extern bool ExecuteAiCommandBatch(const AiCommandBatch &batch);
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -200,12 +244,15 @@ extern void SendCommandDiplomacy(int player, EDiplomacy state, int opponent);
 extern void SendCommandSharedVision(int player, bool state, int opponent);
 
 /// Execute a command (from network).
-extern void ExecCommand(unsigned char type, UnitRef unum, unsigned short x,
-						unsigned short y, UnitRef dest);
+extern void
+ExecCommand(unsigned char type, UnitRef unum, unsigned short x, unsigned short y, UnitRef dest);
 /// Execute an extended command (from network).
-extern void ExecExtendedCommand(unsigned char type, int status, unsigned char arg1,
-								unsigned short arg2, unsigned short arg3,
-								unsigned short arg4);
+extern void ExecExtendedCommand(unsigned char type,
+                                int status,
+                                unsigned char arg1,
+                                unsigned short arg2,
+                                unsigned short arg3,
+                                unsigned short arg4);
 
 //@}
 

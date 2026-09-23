@@ -412,6 +412,59 @@ int NetConnectTCP(Socket sockfd, unsigned long addr, int port)
 	return sockfd;
 }
 
+int NetConnectTCPNonBlocking(Socket sockfd, unsigned long addr, int port)
+{
+	if (addr == INADDR_NONE) {
+		return -1;
+	}
+	sockaddr_in sa{};
+	memcpy(&sa.sin_addr, &addr, sizeof(sa.sin_addr));
+	sa.sin_family = AF_INET;
+	sa.sin_port = htons(port);
+	if (connect(sockfd, reinterpret_cast<sockaddr *>(&sa), sizeof(sa)) == 0) {
+		return 1;
+	}
+#ifdef USE_WINSOCK
+	const int error = WSAGetLastError();
+	return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEALREADY ? 0 : -1;
+#else
+	return errno == EINPROGRESS || errno == EALREADY || errno == EINTR ? 0 : -1;
+#endif
+}
+
+int NetTCPConnectStatus(Socket sockfd)
+{
+	fd_set writable;
+	fd_set errors;
+	FD_ZERO(&writable);
+	FD_ZERO(&errors);
+	FD_SET(sockfd, &writable);
+	FD_SET(sockfd, &errors);
+	timeval timeout{};
+	const int ready = select(static_cast<int>(sockfd + 1), nullptr, &writable, &errors, &timeout);
+	if (ready == 0) {
+		return 0;
+	}
+	if (ready < 0) {
+#ifdef USE_WINSOCK
+		return WSAGetLastError() == WSAEINTR ? 0 : -1;
+#else
+		return errno == EINTR ? 0 : -1;
+#endif
+	}
+	int error = 0;
+#ifdef USE_WINSOCK
+	int length = sizeof(error);
+	if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &length) != 0) {
+#else
+	socklen_t length = sizeof(error);
+	if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &length) != 0) {
+#endif
+		return -1;
+	}
+	return error == 0 && FD_ISSET(sockfd, &writable) ? 1 : -1;
+}
+
 /**
 **  Wait for socket ready.
 **
@@ -602,6 +655,20 @@ int NetSendTCP(Socket sockfd, const void *buf, int len)
 	return send(sockfd, (sendbuftype) buf, len, MSG_NOSIGNAL);
 #else
 	return send(sockfd, (sendbuftype) buf, len, 0);
+#endif
+}
+
+int NetSendTCPNonBlocking(Socket sockfd, const void *buf, int len)
+{
+	const int sent = NetSendTCP(sockfd, buf, len);
+	if (sent >= 0) {
+		return sent;
+	}
+#ifdef USE_WINSOCK
+	const int error = WSAGetLastError();
+	return error == WSAEWOULDBLOCK || error == WSAEINTR ? 0 : -1;
+#else
+	return errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR ? 0 : -1;
 #endif
 }
 

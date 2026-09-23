@@ -112,6 +112,11 @@ public:
 	bool Open(const CHost &host);
 	void Close();
 	bool Connect(const CHost &host);
+	/// These calls never wait; connect/status return 1, 0 (pending), or -1.
+	int ConnectNonBlocking(const CHost &host);
+	int ConnectStatus();
+	/// Returns bytes sent, 0 if the socket would block, -1 on failure.
+	int SendNonBlocking(const void *buf, unsigned int len);
 	int Send(const void *buf, unsigned int len);
 	int Recv(void *buf, int len);
 	bool SetNonBlocking();

@@ -41,13 +41,15 @@
 --  Declarations
 ----------------------------------------------------------------------------*/
 
-enum class EReplayType {
-	NoReplay,      /// No replay
-	SinglePlayer,  /// Single player replay
-	MultiPlayer    /// Multi player replay
-};                 /// Replay types
+enum class EReplayType
+{
+	NoReplay, /// No replay
+	SinglePlayer, /// Single player replay
+	MultiPlayer /// Multi player replay
+}; /// Replay types
 
 class CFile;
+struct AiCommandBatch;
 class CUnit;
 
 enum class EFlushMode;
@@ -56,8 +58,8 @@ enum class EFlushMode;
 --  Variables
 ----------------------------------------------------------------------------*/
 
-extern bool CommandLogDisabled;    /// True, if command log is off
-extern EReplayType ReplayGameType;  /// Replay game type
+extern bool CommandLogDisabled; /// True, if command log is off
+extern EReplayType ReplayGameType; /// Replay game type
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -72,8 +74,12 @@ extern void CommandLog(const char *action,
                        const CUnit *dest,
                        const char *value,
                        int num);
+/// Log one validated, ordered AI batch before it changes simulation state.
+extern void CommandLogAiBatch(const AiCommandBatch &batch);
 /// Replay user commands from log each cycle, single player games
 extern void SinglePlayerReplayEachCycle();
+/// Replay new-format single-player commands after increment, before simulation.
+extern void SinglePlayerReplayAfterIncrement();
 /// Replay user commands from log each cycle, multiplayer games
 extern void MultiPlayerReplayEachCycle();
 /// End logging

@@ -50,14 +50,23 @@
 #include "unittype.h"
 #include "upgrade.h"
 
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
+#include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
+
+#ifdef USE_WINSOCK
+# include <ws2tcpip.h>
+#endif
 
 /**
 **  Insert new unit-type element.
@@ -1874,7 +1883,7 @@ static int CclDefineAiPlayer(lua_State *l)
 	return 0;
 }
 
-static CUnit *AiDirectCommandUnit(const int slot)
+static CUnit *AiCommandUnit(const int slot)
 {
 	if (slot < 0 || static_cast<unsigned int>(slot) >= UnitManager->GetUsedSlotCount()) {
 		return nullptr;
@@ -1887,7 +1896,7 @@ static CUnit *AiDirectCommandUnit(const int slot)
 	return &unit;
 }
 
-static CUnitType *AiDirectCommandUnitType(const std::string_view ident)
+static CUnitType *AiCommandUnitType(const std::string_view ident)
 {
 	for (CUnitType *type : getUnitTypes()) {
 		if (type != nullptr && type->Ident == ident) {
@@ -1896,18 +1905,18 @@ static CUnitType *AiDirectCommandUnitType(const std::string_view ident)
 	}
 	return nullptr;
 }
-static SpellType *AiDirectCommandSpellType(const std::string_view ident)
+static SpellType *AiCommandSpellType(const std::string_view ident)
 {
 	const auto it = ranges::find(SpellTypeTable, ident, &SpellType::Ident);
 	return it != SpellTypeTable.end() ? it->get() : nullptr;
 }
 
-static int AiDirectCommandResult(lua_State *l, const bool accepted)
+static int AiCommandResult(lua_State *l, const bool accepted)
 {
 	lua_pushboolean(l, accepted);
 	return 1;
 }
-static int AiDirectCommandInteger(lua_State *l, const int index, const char *description)
+static int AiCommandInteger(lua_State *l, const int index, const char *description)
 {
 	if (!lua_isnumber(l, index)) {
 		LuaError(l, "%s must be an integer", description);
@@ -1920,17 +1929,17 @@ static int AiDirectCommandInteger(lua_State *l, const int index, const char *des
 	return static_cast<int>(value);
 }
 
-static int AiDirectCommandTableInteger(lua_State *l,
-                                       const int tableIndex,
-                                       const char *field,
-                                       const char *description)
+static int AiCommandTableInteger(lua_State *l,
+                                 const int tableIndex,
+                                 const char *field,
+                                 const char *description)
 {
 	lua_getfield(l, tableIndex, field);
-	const int value = AiDirectCommandInteger(l, -1, description);
+	const int value = AiCommandInteger(l, -1, description);
 	lua_pop(l, 1);
 	return value;
 }
-static bool AiDirectCommandMapPosition(const int x, const int y, Vec2i &position)
+static bool AiCommandMapPosition(const int x, const int y, Vec2i &position)
 {
 	if (x < 0 || y < 0 || x > std::numeric_limits<decltype(position.x)>::max()
 	    || y > std::numeric_limits<decltype(position.y)>::max() || x >= Map.Info.MapWidth
@@ -1941,42 +1950,38 @@ static bool AiDirectCommandMapPosition(const int x, const int y, Vec2i &position
 	position.y = static_cast<decltype(position.y)>(y);
 	return true;
 }
-static SpellType *
-AiDirectCommandCastPosition(lua_State *l, const int argumentIndex, Vec2i &position)
+static SpellType *AiCommandCastPosition(lua_State *l, const int argumentIndex, Vec2i &position)
 {
 	if (!lua_istable(l, argumentIndex)) {
 		LuaError(l,
-		         "AiDirectCommand cast-position argument must be table "
+		         "AI batch cast-position argument must be table "
 		         "{spell = ..., x = ..., y = ...}");
 	}
 	lua_getfield(l, argumentIndex, "spell");
 	if (!lua_isstring(l, -1)) {
-		LuaError(l, "AiDirectCommand cast-position spell must be a spell identifier");
+		LuaError(l, "AI batch cast-position spell must be a spell identifier");
 	}
-	SpellType *spell = AiDirectCommandSpellType(LuaToString(l, -1));
+	SpellType *spell = AiCommandSpellType(LuaToString(l, -1));
 	lua_pop(l, 1);
-	const int x =
-		AiDirectCommandTableInteger(l, argumentIndex, "x", "AiDirectCommand cast-position x");
-	const int y =
-		AiDirectCommandTableInteger(l, argumentIndex, "y", "AiDirectCommand cast-position y");
-	return AiDirectCommandMapPosition(x, y, position) ? spell : nullptr;
+	const int x = AiCommandTableInteger(l, argumentIndex, "x", "AI batch cast-position x");
+	const int y = AiCommandTableInteger(l, argumentIndex, "y", "AI batch cast-position y");
+	return AiCommandMapPosition(x, y, position) ? spell : nullptr;
 }
 
-static CUnitType *AiDirectCommandBuildAt(lua_State *l, const int argumentIndex, Vec2i &position)
+static CUnitType *AiCommandBuildAt(lua_State *l, const int argumentIndex, Vec2i &position)
 {
 	if (!lua_istable(l, argumentIndex)) {
-		LuaError(l,
-		         "AiDirectCommand build-at argument must be table {type = ..., x = ..., y = ...}");
+		LuaError(l, "AI batch build-at argument must be table {type = ..., x = ..., y = ...}");
 	}
 	lua_getfield(l, argumentIndex, "type");
 	if (!lua_isstring(l, -1)) {
-		LuaError(l, "AiDirectCommand build-at type must be a unit type identifier");
+		LuaError(l, "AI batch build-at type must be a unit type identifier");
 	}
-	CUnitType *type = AiDirectCommandUnitType(LuaToString(l, -1));
+	CUnitType *type = AiCommandUnitType(LuaToString(l, -1));
 	lua_pop(l, 1);
-	const int x = AiDirectCommandTableInteger(l, argumentIndex, "x", "AiDirectCommand build-at x");
-	const int y = AiDirectCommandTableInteger(l, argumentIndex, "y", "AiDirectCommand build-at y");
-	return AiDirectCommandMapPosition(x, y, position) ? type : nullptr;
+	const int x = AiCommandTableInteger(l, argumentIndex, "x", "AI batch build-at x");
+	const int y = AiCommandTableInteger(l, argumentIndex, "y", "AI batch build-at y");
+	return AiCommandMapPosition(x, y, position) ? type : nullptr;
 }
 static int CclAiCanBuildAt(lua_State *l)
 {
@@ -1984,8 +1989,8 @@ static int CclAiCanBuildAt(lua_State *l)
 		LuaError(l, "AiCanBuildAt expects player, actor slot, type, and {x, y}");
 	}
 
-	const int playerIndex = AiDirectCommandInteger(l, 1, "AiCanBuildAt player");
-	const int actorSlot = AiDirectCommandInteger(l, 2, "AiCanBuildAt actor slot");
+	const int playerIndex = AiCommandInteger(l, 1, "AiCanBuildAt player");
+	const int actorSlot = AiCommandInteger(l, 2, "AiCanBuildAt actor slot");
 	if (!lua_isstring(l, 3)) {
 		LuaError(l, "AiCanBuildAt type must be a unit type identifier");
 	}
@@ -1993,193 +1998,264 @@ static int CclAiCanBuildAt(lua_State *l)
 		LuaError(l, "AiCanBuildAt position must be {x, y}");
 	}
 	lua_rawgeti(l, 4, 1);
-	const int x = AiDirectCommandInteger(l, -1, "AiCanBuildAt position x");
+	const int x = AiCommandInteger(l, -1, "AiCanBuildAt position x");
 	lua_pop(l, 1);
 	lua_rawgeti(l, 4, 2);
-	const int y = AiDirectCommandInteger(l, -1, "AiCanBuildAt position y");
+	const int y = AiCommandInteger(l, -1, "AiCanBuildAt position y");
 	lua_pop(l, 1);
 	Vec2i position;
-	if (!AiDirectCommandMapPosition(x, y, position)) {
-		return AiDirectCommandResult(l, false);
+	if (!AiCommandMapPosition(x, y, position)) {
+		return AiCommandResult(l, false);
 	}
 
 	if (playerIndex < 0 || playerIndex >= PlayerMax) {
-		return AiDirectCommandResult(l, false);
+		return AiCommandResult(l, false);
 	}
-	CUnit *actor = AiDirectCommandUnit(actorSlot);
-	CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 3));
+	CUnit *actor = AiCommandUnit(actorSlot);
+	CUnitType *type = AiCommandUnitType(LuaToString(l, 3));
 
 	if (actor == nullptr || actor->Player != &Players[playerIndex] || type == nullptr
 	    || !type->Building || !Map.Info.IsPointOnMap(position)) {
-		return AiDirectCommandResult(l, false);
+		return AiCommandResult(l, false);
 	}
-	return AiDirectCommandResult(l, CanBuildUnitType(actor, *type, position, 0).has_value());
+	return AiCommandResult(l, CanBuildUnitType(actor, *type, position, 0).has_value());
 }
 
-/**
- * AiDirectCommand(player, actor-slot, verb [, argument])
- *
- * Issue one validated primitive command without involving strategic AI state.
- */
-static int CclAiDirectCommand(lua_State *l)
+static int CclAiExternalDecisionAuthority(lua_State *l)
 {
-	const int args = lua_gettop(l);
-	if (args < 3 || args > 4) {
-		LuaError(l, "AiDirectCommand expects 3 or 4 arguments");
+	if (lua_gettop(l) != 0) {
+		LuaError(l, "AiExternalDecisionAuthority expects no arguments");
 	}
+	return AiCommandResult(l, NetworkAiDecisionAuthority());
+}
 
-	const int playerIndex = AiDirectCommandInteger(l, 1, "AiDirectCommand player");
-	const int actorSlot = AiDirectCommandInteger(l, 2, "AiDirectCommand actor slot");
-	const std::string_view verb = LuaToString(l, 3);
-	const bool noArgument = verb == "stop" || verb == "stand-ground" || verb == "explore";
-	const bool targetArgument = verb == "attack" || verb == "resource" || verb == "repair";
-	const bool positionArgument = verb == "resource-location" || verb == "move";
-	const bool typeArgument =
-		verb == "build" || verb == "train" || verb == "research" || verb == "cast-auto";
-	const bool buildAtArgument = verb == "build-at";
-	const bool castPositionArgument = verb == "cast-position";
+static bool AiBatchPosition(lua_State *l, const int index, Vec2i &position)
+{
+	if (!lua_istable(l, index) || lua_rawlen(l, index) != 2) {
+		LuaError(l, "AI batch position must be {x, y}");
+	}
+	lua_rawgeti(l, index, 1);
+	const int x = AiCommandInteger(l, -1, "AI batch position x");
+	lua_pop(l, 1);
+	lua_rawgeti(l, index, 2);
+	const int y = AiCommandInteger(l, -1, "AI batch position y");
+	lua_pop(l, 1);
+	return AiCommandMapPosition(x, y, position);
+}
 
-	if (!noArgument && !targetArgument && !positionArgument && !typeArgument && !buildAtArgument
-	    && !castPositionArgument) {
-		LuaError(l, "unsupported AiDirectCommand verb: %s", verb.data());
+static bool AiBatchParsePrimitive(lua_State *l,
+                                  const int player,
+                                  const int tableIndex,
+                                  AiCommandPrimitive &primitive)
+{
+	if (!lua_istable(l, tableIndex)) {
+		LuaError(l, "AI batch command must be a table");
 	}
-	if (args != (noArgument ? 3 : 4)) {
-		LuaError(l, "incorrect argument count for AiDirectCommand verb: %s", verb.data());
+	const int slot = AiCommandTableInteger(l, tableIndex, "actor", "AI batch actor slot");
+	if (slot < 0 || slot > std::numeric_limits<uint16_t>::max()) {
+		return false;
 	}
-	if (playerIndex < 0 || playerIndex >= PlayerMax) {
-		return AiDirectCommandResult(l, false);
+	CUnit *actor = AiCommandUnit(slot);
+	if (!actor || actor->Player != &Players[player]) {
+		return false;
 	}
-
-	CUnit *actor = AiDirectCommandUnit(actorSlot);
-	if (actor == nullptr || actor->Player != &Players[playerIndex]) {
-		return AiDirectCommandResult(l, false);
+	primitive.actor = static_cast<uint16_t>(slot);
+	lua_getfield(l, tableIndex, "verb");
+	if (!lua_isstring(l, -1)) {
+		LuaError(l, "AI batch verb must be a string");
 	}
-
-	if (verb == "stop") {
-		CommandStopUnit(*actor);
-		return AiDirectCommandResult(l, true);
-	}
-	if (verb == "stand-ground") {
-		CommandStandGround(*actor, EFlushMode::On);
-		return AiDirectCommandResult(l, true);
-	}
-	if (verb == "explore") {
-		CommandExplore(*actor, EFlushMode::On);
-		return AiDirectCommandResult(l, true);
-	}
-	if (targetArgument) {
-		CUnit *target = AiDirectCommandUnit(LuaToNumber(l, 4));
-		if (target == nullptr) {
-			return AiDirectCommandResult(l, false);
+	const std::string verb(LuaToString(l, -1));
+	lua_pop(l, 1);
+	lua_getfield(l, tableIndex, "argument");
+	const int argument = lua_gettop(l);
+	bool valid = true;
+	if (verb == "stop" || verb == "stand-ground" || verb == "explore") {
+		if (!lua_isnil(l, argument)) {
+			LuaError(l, "AI batch no-argument verb received an argument");
 		}
-		if (verb == "attack") {
-			if (!target->IsEnemy(*actor->Player)) {
-				return AiDirectCommandResult(l, false);
-			}
-			CommandAttack(*actor, target->tilePos, target, EFlushMode::On);
-		} else if (verb == "resource") {
-			if (target->Type->GivesResource == 0) {
-				return AiDirectCommandResult(l, false);
-			}
-			CommandResource(*actor, *target, EFlushMode::On);
+		primitive.verb = verb == "stop"         ? AiCommandVerb::Stop
+		               : verb == "stand-ground" ? AiCommandVerb::StandGround
+		                                        : AiCommandVerb::Explore;
+	} else if (verb == "attack" || verb == "resource" || verb == "repair") {
+		const int target = AiCommandInteger(l, argument, "AI batch target slot");
+		valid = target >= 0 && target <= std::numeric_limits<uint16_t>::max();
+		primitive.target = valid ? static_cast<uint16_t>(target) : 0;
+		primitive.verb = verb == "attack"   ? AiCommandVerb::Attack
+		               : verb == "resource" ? AiCommandVerb::Resource
+		                                    : AiCommandVerb::Repair;
+	} else if (verb == "move" || verb == "resource-location") {
+		Vec2i position;
+		valid = AiBatchPosition(l, argument, position);
+		primitive.verb = verb == "move" ? AiCommandVerb::Move : AiCommandVerb::ResourceLocation;
+		if (valid) {
+			primitive.x = position.x;
+			primitive.y = position.y;
+		}
+	} else if (verb == "build" || verb == "build-at" || verb == "train") {
+		Vec2i position;
+		CUnitType *type = nullptr;
+		if (verb == "build-at") {
+			type = AiCommandBuildAt(l, argument, position);
+			primitive.verb = AiCommandVerb::BuildAt;
 		} else {
-			if (target->Player != actor->Player) {
-				return AiDirectCommandResult(l, false);
+			if (!lua_isstring(l, argument)) {
+				LuaError(l, "AI batch type must be a unit type identifier");
 			}
-			CommandRepair(*actor, target->tilePos, target, EFlushMode::On);
+			type = AiCommandUnitType(LuaToString(l, argument));
+			primitive.verb = verb == "train" ? AiCommandVerb::Train : AiCommandVerb::BuildAt;
+			if (verb == "build" && type && type->Building) {
+				const auto location = AiFindBuildingPlace(*actor, *type, actor->tilePos);
+				valid = location.has_value();
+				if (valid) {
+					position = *location;
+				}
+			}
 		}
-		return AiDirectCommandResult(l, true);
-	}
-	if (positionArgument) {
+		valid =
+			valid && type && type->Slot >= 0 && type->Slot <= std::numeric_limits<uint16_t>::max();
+		if (valid) {
+			primitive.target = static_cast<uint16_t>(type->Slot);
+			primitive.x = position.x;
+			primitive.y = position.y;
+		}
+	} else if (verb == "cast-position" || verb == "cast-auto") {
+		SpellType *spell = nullptr;
 		Vec2i position;
-		CclGetPos(l, &position, 4);
-		if (!Map.Info.IsPointOnMap(position)) {
-			return AiDirectCommandResult(l, false);
-		}
-		if (verb == "resource-location") {
-			CommandResourceLoc(*actor, position, EFlushMode::On);
+		if (verb == "cast-position") {
+			spell = AiCommandCastPosition(l, argument, position);
+			primitive.verb = AiCommandVerb::CastPosition;
 		} else {
-			CommandMove(*actor, position, EFlushMode::On);
+			if (!lua_isstring(l, argument)) {
+				LuaError(l, "AI batch spell must be a spell identifier");
+			}
+			spell = AiCommandSpellType(LuaToString(l, argument));
+			primitive.verb = AiCommandVerb::CastAuto;
 		}
-		return AiDirectCommandResult(l, true);
+		valid = spell && spell->Slot >= 0 && spell->Slot <= std::numeric_limits<uint16_t>::max();
+		if (valid) {
+			primitive.target = static_cast<uint16_t>(spell->Slot);
+			primitive.x = position.x;
+			primitive.y = position.y;
+		}
+	} else if (verb == "research") {
+		if (!lua_isstring(l, argument)) {
+			LuaError(l, "AI batch upgrade must be an upgrade identifier");
+		}
+		CUpgrade *upgrade = CUpgrade::Get(LuaToString(l, argument));
+		primitive.verb = AiCommandVerb::Research;
+		valid = upgrade && upgrade->ID >= 0 && upgrade->ID <= std::numeric_limits<uint16_t>::max();
+		if (valid) {
+			primitive.target = static_cast<uint16_t>(upgrade->ID);
+		}
+	} else {
+		LuaError(l, "unsupported AI batch verb: %s", verb.c_str());
 	}
-	if (castPositionArgument) {
-		Vec2i position;
-		SpellType *spell = AiDirectCommandCastPosition(l, 4, position);
-		if (spell == nullptr || spell->Target != ETarget::Position
-		    || spell->Slot >= actor->Type->CanCastSpell.size()
-		    || !actor->Type->CanCastSpell[spell->Slot]
-		    || !SpellIsAvailable(*actor->Player, spell->Slot)
-		    || !CanCastSpell(*actor, *spell, nullptr, position)) {
-			return AiDirectCommandResult(l, false);
-		}
-		CommandSpellCast(*actor, position, nullptr, *spell, EFlushMode::On, false);
-		return AiDirectCommandResult(l, true);
-	}
-	if (buildAtArgument) {
-		Vec2i position;
-		CUnitType *type = AiDirectCommandBuildAt(l, 4, position);
-		if (type == nullptr || !type->Building || !Map.Info.IsPointOnMap(position)
-		    || !CanBuildUnitType(actor, *type, position, 0).has_value()) {
-			return AiDirectCommandResult(l, false);
-		}
-		CommandBuildBuilding(*actor, position, *type, EFlushMode::On);
-		return AiDirectCommandResult(l, true);
-	}
-	if (verb == "build") {
-		CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 4));
-		if (type == nullptr || !type->Building) {
-			return AiDirectCommandResult(l, false);
-		}
-		if (const auto position = AiFindBuildingPlace(*actor, *type, actor->tilePos);
-		    position && CanBuildUnitType(actor, *type, *position, 0).has_value()) {
-			CommandBuildBuilding(*actor, *position, *type, EFlushMode::On);
-			return AiDirectCommandResult(l, true);
-		}
-		return AiDirectCommandResult(l, false);
-	}
-	if (verb == "train") {
-		CUnitType *type = AiDirectCommandUnitType(LuaToString(l, 4));
-		if (type == nullptr || type->Building) {
-			return AiDirectCommandResult(l, false);
-		}
-		CommandTrainUnit(*actor, *type, EFlushMode::On);
-		return AiDirectCommandResult(l, true);
-	}
-	if (verb == "cast-auto") {
-		SpellType *spell = AiDirectCommandSpellType(LuaToString(l, 4));
-		if (spell == nullptr || spell->Slot >= actor->Type->CanCastSpell.size()
-		    || !actor->Type->CanCastSpell[spell->Slot]
-		    || !SpellIsAvailable(*actor->Player, spell->Slot)
-		    || (!(actor->Player->AiEnabled && spell->AICast) && !spell->AutoCast)) {
-			return AiDirectCommandResult(l, false);
-		}
-		return AiDirectCommandResult(l, AutoCastSpell(*actor, *spell));
-	}
+	lua_pop(l, 1);
+	return valid;
+}
 
-	CUpgrade *upgrade = CUpgrade::Get(LuaToString(l, 4));
-	if (upgrade == nullptr) {
-		return AiDirectCommandResult(l, false);
+static int CclAiPublishCommandBatch(lua_State *l)
+{
+	if (lua_gettop(l) != 3 || !lua_istable(l, 3)) {
+		LuaError(l, "AiPublishCommandBatch expects player, sequence, commands table");
 	}
-	CommandResearch(*actor, *upgrade, EFlushMode::On);
-	return AiDirectCommandResult(l, true);
+	const int player = AiCommandInteger(l, 1, "AI batch player");
+	if (!lua_isnumber(l, 2)) {
+		LuaError(l, "AI batch sequence must be an unsigned 32-bit integer");
+	}
+	const lua_Number sequence = lua_tonumber(l, 2);
+	if (!std::isfinite(sequence) || std::trunc(sequence) != sequence || sequence < 0
+	    || sequence > std::numeric_limits<uint32_t>::max()) {
+		LuaError(l, "AI batch sequence must be an unsigned 32-bit integer");
+	}
+	const size_t count = lua_rawlen(l, 3);
+	if (!NetworkAiDecisionAuthority() || player < 0 || player >= NumPlayers
+	    || Players[player].Type != PlayerTypes::PlayerComputer || count == 0
+	    || count > AiCommandBatch::MaxCommands) {
+		return AiCommandResult(l, false);
+	}
+	AiCommandBatch batch;
+	batch.player = static_cast<uint8_t>(player);
+	batch.sequence = static_cast<uint32_t>(sequence);
+	batch.commands.reserve(count);
+	for (size_t i = 1; i <= count; ++i) {
+		lua_rawgeti(l, 3, static_cast<int>(i));
+		AiCommandPrimitive command;
+		if (!AiBatchParsePrimitive(l, player, -1, command)) {
+			lua_pop(l, 1);
+			return AiCommandResult(l, false);
+		}
+		lua_pop(l, 1);
+		batch.commands.push_back(command);
+	}
+	return AiCommandResult(l, NetworkPublishAiCommandBatch(batch));
 }
 
 namespace
 {
 constexpr auto AiProcessorReconnectDelay = std::chrono::milliseconds(1000);
+constexpr auto AiProcessorConnectTimeout = std::chrono::seconds(10);
+constexpr auto AiProcessorResponseTimeout = std::chrono::seconds(60);
 constexpr size_t AiProcessorHeaderWords = 22;
 constexpr size_t AiProcessorEntityWords = 14;
 constexpr size_t AiProcessorCandidateWords = 12;
 constexpr size_t AiProcessorMaxWords = 65536;
 constexpr uint32_t AiProcessorMaxCandidates = 512;
+constexpr char AiProcessorHandleType[] = "War1gusAiProcessorConnection";
+
+struct AiProcessorResolution final
+{
+	std::atomic<bool> done{false};
+	unsigned long address = INADDR_NONE;
+};
+
+enum class AiProcessorPhase
+{
+	Disconnected,
+	Connecting,
+	Setup,
+	Writing,
+	Reading
+};
+enum class AiProcessorResult
+{
+	Pending,
+	Ready,
+	Failed
+};
 
 struct AiProcessorConnection final
 {
 	std::string host;
-	int port;
-	uint32_t sequence;
+	int port = 0;
+	bool networkInitialized = false;
+	uint32_t sequence = 0;
+	std::shared_ptr<AiProcessorResolution> resolution;
 	std::unique_ptr<CTCPSocket> socket;
+	AiProcessorPhase phase = AiProcessorPhase::Disconnected;
+	std::chrono::steady_clock::time_point phaseStarted{};
+	std::chrono::steady_clock::time_point retryAfter{};
+	std::vector<char> bytes;
+	uint32_t candidateCount = 0;
+	size_t setupOffset = 0;
+	size_t writeOffset = 0;
+	std::array<char, sizeof(uint32_t)> response{};
+	size_t readOffset = 0;
+	bool inFlight = false;
+	bool terminal = false;
+	bool cancelled = false;
+	~AiProcessorConnection()
+	{
+		socket.reset(); // Close the TCP socket before the last Winsock cleanup.
+		if (networkInitialized) {
+			NetExit();
+		}
+	}
+};
+
+struct AiProcessorUserdata final
+{
+	AiProcessorConnection *connection = nullptr;
 };
 
 struct AiProcessorFrame final
@@ -2187,6 +2263,37 @@ struct AiProcessorFrame final
 	std::vector<char> bytes;
 	uint32_t candidateCount;
 };
+
+// Name resolution must never run on the simulation thread. A detached resolver
+// owns its result until it finishes, even if Lua releases the handle meanwhile.
+static void AiProcessorResolve(AiProcessorConnection &connection)
+{
+	auto result = std::make_shared<AiProcessorResolution>();
+	connection.resolution = result;
+	const unsigned long address = inet_addr(connection.host.c_str());
+	if (address != INADDR_NONE) {
+		result->address = address;
+		result->done.store(true, std::memory_order_release);
+		return;
+	}
+	try {
+		std::thread([result, host = connection.host]() {
+			addrinfo hints{};
+			hints.ai_family = AF_INET;
+			hints.ai_socktype = SOCK_STREAM;
+			addrinfo *addresses = nullptr;
+			if (getaddrinfo(host.c_str(), nullptr, &hints, &addresses) == 0 && addresses) {
+				result->address =
+					reinterpret_cast<const sockaddr_in *>(addresses->ai_addr)->sin_addr.s_addr;
+				freeaddrinfo(addresses);
+			}
+			result->done.store(true, std::memory_order_release);
+		}).detach();
+	}
+	catch (const std::system_error &) {
+		result->done.store(true, std::memory_order_release);
+	}
+}
 
 static void AiProcessorClose(AiProcessorConnection &connection)
 {
@@ -2196,63 +2303,161 @@ static void AiProcessorClose(AiProcessorConnection &connection)
 		}
 		connection.socket.reset();
 	}
+	connection.phase = AiProcessorPhase::Disconnected;
+	connection.setupOffset = 0;
+	connection.writeOffset = 0;
+	connection.readOffset = 0;
+	connection.retryAfter = std::chrono::steady_clock::now() + AiProcessorReconnectDelay;
 }
 
-static bool AiProcessorSendAll(CTCPSocket &socket, const char *data, size_t length)
+static void AiProcessorClear(AiProcessorConnection &connection)
 {
-	size_t offset = 0;
-	while (offset != length) {
-		const int sent = socket.Send(data + offset, static_cast<unsigned int>(length - offset));
-		if (sent <= 0) {
-			return false;
-		}
-		offset += sent;
-	}
-	return true;
-}
-
-static bool AiProcessorReceiveAll(CTCPSocket &socket, char *data, size_t length)
-{
-	size_t offset = 0;
-	while (offset != length) {
-		const int received = socket.Recv(data + offset, static_cast<int>(length - offset));
-		if (received <= 0) {
-			return false;
-		}
-		offset += received;
-	}
-	return true;
-}
-
-static bool AiProcessorConnect(AiProcessorConnection &connection)
-{
-	auto socket = std::make_unique<CTCPSocket>();
-	if (!socket->Open(CHost()) || !socket->Connect(CHost(connection.host, connection.port))) {
-		if (socket->IsValid()) {
-			socket->Close();
-		}
-		return false;
-	}
-
-	const char setup[] = {'I', static_cast<char>(3)};
-	if (!AiProcessorSendAll(*socket, setup, sizeof(setup))) {
-		socket->Close();
-		return false;
-	}
-
-	connection.socket = std::move(socket);
-	return true;
+	connection.inFlight = false;
+	connection.terminal = false;
+	connection.bytes.clear();
+	connection.candidateCount = 0;
 }
 
 static AiProcessorConnection *AiProcessorHandle(lua_State *l)
 {
-	auto *connection = static_cast<AiProcessorConnection *>(lua_touserdata(l, 1));
-	if (connection == nullptr) {
-		LuaError(l,
-		         "first argument must be valid handle returned from a previous "
-		         "AiProcessorSetup call");
+	auto *owner = static_cast<AiProcessorUserdata *>(luaL_checkudata(l, 1, AiProcessorHandleType));
+	if (owner->connection == nullptr) {
+		LuaError(l, "AI processor handle is closed");
 	}
-	return connection;
+	return owner->connection;
+}
+
+static int CclAiProcessorGc(lua_State *l)
+{
+	auto *owner = static_cast<AiProcessorUserdata *>(luaL_checkudata(l, 1, AiProcessorHandleType));
+	auto *connection = owner->connection;
+	owner->connection = nullptr;
+	delete connection;
+	return 0;
+}
+
+static void
+AiProcessorStart(AiProcessorConnection &connection, AiProcessorFrame frame, const bool terminal)
+{
+	connection.bytes = std::move(frame.bytes);
+	connection.candidateCount = frame.candidateCount;
+	connection.terminal = terminal;
+	connection.inFlight = true;
+	connection.setupOffset = 0;
+	connection.writeOffset = 0;
+	connection.readOffset = 0;
+	if (connection.phase == AiProcessorPhase::Reading && connection.socket) {
+		connection.phase = AiProcessorPhase::Writing;
+		connection.phaseStarted = std::chrono::steady_clock::now();
+	}
+}
+
+// One non-blocking operation per invocation, including the two-byte v3 init
+// frame. In particular no partial response can escape into a later request.
+static AiProcessorResult AiProcessorProgress(AiProcessorConnection &connection, uint32_t &selected)
+{
+	const auto now = std::chrono::steady_clock::now();
+	if (connection.phase == AiProcessorPhase::Disconnected) {
+		if (now < connection.retryAfter) {
+			return AiProcessorResult::Pending;
+		}
+		if (!connection.resolution) {
+			AiProcessorResolve(connection);
+		}
+		if (!connection.resolution->done.load(std::memory_order_acquire)) {
+			return AiProcessorResult::Pending;
+		}
+		if (connection.resolution->address == INADDR_NONE) {
+			connection.resolution.reset();
+			connection.retryAfter = now + AiProcessorReconnectDelay;
+			return AiProcessorResult::Failed;
+		}
+		connection.socket = std::make_unique<CTCPSocket>();
+		if (!connection.socket->Open(CHost()) || !connection.socket->SetNonBlocking()) {
+			AiProcessorClose(connection);
+			return AiProcessorResult::Failed;
+		}
+		const int connected = connection.socket->ConnectNonBlocking(
+			CHost(connection.resolution->address, connection.port));
+		if (connected < 0) {
+			AiProcessorClose(connection);
+			return AiProcessorResult::Failed;
+		}
+		connection.phase = connected ? AiProcessorPhase::Setup : AiProcessorPhase::Connecting;
+		connection.phaseStarted = now;
+		return AiProcessorResult::Pending;
+	}
+	if (now - connection.phaseStarted > (connection.phase == AiProcessorPhase::Reading
+	                                         ? AiProcessorResponseTimeout
+	                                         : AiProcessorConnectTimeout)) {
+		AiProcessorClose(connection);
+		return AiProcessorResult::Failed;
+	}
+	if (connection.phase == AiProcessorPhase::Connecting) {
+		const int connected = connection.socket->ConnectStatus();
+		if (connected < 0) {
+			AiProcessorClose(connection);
+			return AiProcessorResult::Failed;
+		}
+		if (connected) {
+			connection.phase = AiProcessorPhase::Setup;
+			connection.phaseStarted = now;
+		}
+		return AiProcessorResult::Pending;
+	}
+	if (connection.phase == AiProcessorPhase::Setup) {
+		const char init[] = {'I', static_cast<char>(3)};
+		const int sent = connection.socket->SendNonBlocking(init + connection.setupOffset,
+		                                                    sizeof(init) - connection.setupOffset);
+		if (sent < 0) {
+			AiProcessorClose(connection);
+			return AiProcessorResult::Failed;
+		}
+		connection.setupOffset += sent;
+		if (connection.setupOffset == sizeof(init)) {
+			connection.phase = AiProcessorPhase::Writing;
+			connection.phaseStarted = now;
+		}
+		return AiProcessorResult::Pending;
+	}
+	if (connection.phase == AiProcessorPhase::Writing) {
+		const int sent = connection.socket->SendNonBlocking(
+			connection.bytes.data() + connection.writeOffset,
+			static_cast<unsigned int>(connection.bytes.size() - connection.writeOffset));
+		if (sent < 0) {
+			AiProcessorClose(connection);
+			return AiProcessorResult::Failed;
+		}
+		connection.writeOffset += sent;
+		if (connection.writeOffset == connection.bytes.size()) {
+			if (connection.terminal) {
+				AiProcessorClose(connection);
+				return AiProcessorResult::Ready;
+			}
+			connection.phase = AiProcessorPhase::Reading;
+			connection.phaseStarted = now;
+		}
+		return AiProcessorResult::Pending;
+	}
+	const int received = connection.socket->Recv(
+		connection.response.data() + connection.readOffset,
+		static_cast<int>(connection.response.size() - connection.readOffset));
+	if (received < 0) {
+		AiProcessorClose(connection);
+		return AiProcessorResult::Failed;
+	}
+	connection.readOffset += received;
+	if (connection.readOffset != connection.response.size()) {
+		return AiProcessorResult::Pending;
+	}
+	uint32_t networkIndex;
+	memcpy(&networkIndex, connection.response.data(), sizeof(networkIndex));
+	selected = ntohl(networkIndex);
+	if (selected >= connection.candidateCount) {
+		AiProcessorClose(connection);
+		return AiProcessorResult::Failed;
+	}
+	return AiProcessorResult::Ready;
 }
 
 static uint32_t AiProcessorStateWord(lua_State *l,
@@ -2354,7 +2559,7 @@ AiProcessorMakeFrame(lua_State *l, const AiProcessorConnection &connection, cons
 	uint32_t candidateCount = stateCandidateCount;
 	if (prefix == 'S') {
 		const int suppliedCandidateCount =
-			AiDirectCommandInteger(l, 4, "AiProcessorStep candidate count");
+			AiCommandInteger(l, 4, "AiProcessorStep candidate count");
 		if (suppliedCandidateCount <= 0
 		    || static_cast<uint32_t>(suppliedCandidateCount) > AiProcessorMaxCandidates) {
 			LuaError(l,
@@ -2389,99 +2594,200 @@ AiProcessorMakeFrame(lua_State *l, const AiProcessorConnection &connection, cons
 	return frame;
 }
 } // namespace
-
 /**
- * AiProcessorSetup(host, port)
- *
- * Connect once to a protocol-v3 AI processor at host:port. Returns nil if it
- * is unavailable so an AI script can continue without an external processor.
+ * AiProcessorSetup(host, port) constructs a managed handle without waiting
+ * for name resolution, connection establishment, or the v3 init exchange.
  */
 static int CclAiProcessorSetup(lua_State *l)
 {
-	InitNetwork1();
 	if (lua_gettop(l) != 2) {
 		LuaError(l, "AiProcessorSetup expects host and port");
 	}
 	if (!lua_isstring(l, 1) || LuaToString(l, 1).empty()) {
 		LuaError(l, "AiProcessorSetup host must be a non-empty string");
 	}
-	const int port = AiDirectCommandInteger(l, 2, "AiProcessorSetup port");
+	const int port = AiCommandInteger(l, 2, "AiProcessorSetup port");
 	if (port <= 0 || port > UINT16_MAX) {
 		LuaError(l, "AiProcessorSetup port must be between 1 and %u", UINT16_MAX);
 	}
 
-	auto connection = std::make_unique<AiProcessorConnection>(
-		AiProcessorConnection{std::string{LuaToString(l, 1)}, port, 0, nullptr});
-	if (!AiProcessorConnect(*connection)) {
+	auto *owner = new (lua_newuserdata(l, sizeof(AiProcessorUserdata))) AiProcessorUserdata{};
+	luaL_getmetatable(l, AiProcessorHandleType);
+	lua_setmetatable(l, -2);
+	owner->connection = new AiProcessorConnection{};
+	auto *connection = owner->connection;
+	connection->host = LuaToString(l, 1);
+	connection->port = port;
+	if (NetInit() != 0) {
+		owner->connection = nullptr;
+		delete connection;
+		lua_pop(l, 1);
 		lua_pushnil(l);
-		return 1;
+		lua_pushliteral(l, "TCP network initialization failed");
+		return 2;
 	}
-	lua_pushlightuserdata(l, connection.release());
+	connection->networkInitialized = true;
+	AiProcessorResolve(*connection);
 	return 1;
 }
 
 /**
- * AiProcessorStep(handle, reward_since_last_call, state_words, candidate_count)
+ * AiProcessorBegin(handle, reward, state, candidate_count) starts one request.
+ * Poll performs all network work; a second outstanding request is rejected.
+ */
+static int CclAiProcessorBegin(lua_State *l)
+{
+	AiProcessorConnection *connection = AiProcessorHandle(l);
+	if (connection->inFlight) {
+		lua_pushnil(l);
+		lua_pushliteral(l, "AI processor request already pending");
+		return 2;
+	}
+	if (connection->cancelled) {
+		lua_pushnil(l);
+		lua_pushliteral(l, "AI processor handle was canceled");
+		return 2;
+	}
+	AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'S');
+	if (!connection->bytes.empty() && connection->bytes != frame.bytes) {
+		lua_pushnil(l);
+		lua_pushliteral(l, "AI processor retry must use the original frame");
+		return 2;
+	}
+	AiProcessorStart(*connection, std::move(frame), false);
+	lua_pushnumber(l, connection->sequence);
+	return 1;
+}
+
+/**
+ * AiProcessorPoll(handle) -> "pending"|"ready"|"failed", sequence, index.
+ * The index is one-based, and exists only for a complete valid response.
+ */
+static int CclAiProcessorPoll(lua_State *l)
+{
+	AiProcessorConnection *connection = AiProcessorHandle(l);
+	if (lua_gettop(l) != 1) {
+		LuaError(l, "AiProcessorPoll expects a handle");
+	}
+	if (!connection->inFlight) {
+		lua_pushliteral(l, "failed");
+		lua_pushnil(l);
+		lua_pushnil(l);
+		return 3;
+	}
+	const uint32_t sequence = connection->sequence;
+	uint32_t selected = 0;
+	const AiProcessorResult result = AiProcessorProgress(*connection, selected);
+	if (result == AiProcessorResult::Ready) {
+		++connection->sequence;
+		AiProcessorClear(*connection);
+		lua_pushliteral(l, "ready");
+	} else if (result == AiProcessorResult::Failed) {
+		// An ambiguous disconnect must be retried with this exact frame and
+		// sequence: Julia may already have cached its selected action.
+		connection->inFlight = false;
+		lua_pushliteral(l, "failed");
+	} else {
+		lua_pushliteral(l, "pending");
+	}
+	lua_pushnumber(l, sequence);
+	if (result == AiProcessorResult::Ready) {
+		lua_pushnumber(l, selected + 1);
+	} else {
+		lua_pushnil(l);
+	}
+	return 3;
+}
+
+static int CclAiProcessorCancel(lua_State *l)
+{
+	AiProcessorConnection *connection = AiProcessorHandle(l);
+	if (lua_gettop(l) != 1) {
+		LuaError(l, "AiProcessorCancel expects a handle");
+	}
+	AiProcessorClose(*connection); // A late reply on this socket cannot reach another request.
+	AiProcessorClear(*connection);
+	connection->cancelled = true;
+	return 0;
+}
+
+/**
+ * AiProcessorStep is the synchronous training/evaluation adapter over the
+ * same non-blocking codec and connection, retrying an identical sequence on
+ * disconnect (Julia de-duplicates that sequence). It returns the one-based
+ * selection and its original sequence.
  */
 static int CclAiProcessorStep(lua_State *l)
 {
 	AiProcessorConnection *connection = AiProcessorHandle(l);
-	const AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'S');
-
+	if (connection->inFlight) {
+		LuaError(l, "AI processor request already pending");
+	}
+	if (connection->cancelled) {
+		LuaError(l, "AI processor handle was canceled");
+	}
+	AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'S');
+	if (!connection->bytes.empty() && connection->bytes != frame.bytes) {
+		LuaError(l, "AI processor retry must use the original frame");
+	}
+	AiProcessorStart(*connection, std::move(frame), false);
 	for (;;) {
-		if (!connection->socket && !AiProcessorConnect(*connection)) {
+		uint32_t selected = 0;
+		const AiProcessorResult result = AiProcessorProgress(*connection, selected);
+		if (result == AiProcessorResult::Ready) {
+			const uint32_t sequence = connection->sequence;
+			++connection->sequence;
+			AiProcessorClear(*connection);
+			lua_pushnumber(l, selected + 1);
+			lua_pushnumber(l, sequence);
+			return 2;
+		}
+		if (result == AiProcessorResult::Failed) {
 			std::this_thread::sleep_for(AiProcessorReconnectDelay);
-			continue;
+		} else {
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
-		if (!AiProcessorSendAll(*connection->socket, frame.bytes.data(), frame.bytes.size())) {
-			AiProcessorClose(*connection);
-			std::this_thread::sleep_for(AiProcessorReconnectDelay);
-			continue;
-		}
-
-		uint32_t selectedNetwork;
-		for (;;) {
-			const int ready = connection->socket->HasDataToRead(
-				static_cast<int>(AiProcessorReconnectDelay.count()));
-			if (ready == 0) {
-				continue;
-			}
-			if (ready > 0
-			    && AiProcessorReceiveAll(*connection->socket,
-			                             reinterpret_cast<char *>(&selectedNetwork),
-			                             sizeof(selectedNetwork))) {
-				const uint32_t selected = ntohl(selectedNetwork);
-				if (selected >= frame.candidateCount) {
-					AiProcessorClose(*connection);
-					LuaError(l,
-					         "AI processor selected candidate %u but only %u candidates were "
-					         "supplied",
-					         selected,
-					         frame.candidateCount);
-				}
-				++connection->sequence;
-				lua_pushnumber(l, selected + 1); // Lua candidate tables are one-indexed.
-				return 1;
-			}
-			break;
-		}
-
-		AiProcessorClose(*connection);
-		std::this_thread::sleep_for(AiProcessorReconnectDelay);
 	}
 }
 
+/**
+ * End(handle) is an immediate local teardown. Training End(handle,reward,state)
+ * sends the terminal v3 E frame before teardown, with a bounded retry window.
+ */
 static int CclAiProcessorEnd(lua_State *l)
 {
 	AiProcessorConnection *connection = AiProcessorHandle(l);
-	const AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'E');
-
-	if (connection->socket) {
-		AiProcessorSendAll(*connection->socket, frame.bytes.data(), frame.bytes.size());
-		AiProcessorClose(*connection);
+	bool delivered = true;
+	if (lua_gettop(l) == 3) {
+		AiProcessorFrame frame = AiProcessorMakeFrame(l, *connection, 'E');
+		if (connection->inFlight) {
+			AiProcessorClose(*connection);
+		}
+		AiProcessorClear(*connection);
+		AiProcessorStart(*connection, std::move(frame), true);
+		delivered = false;
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (std::chrono::steady_clock::now() < deadline) {
+			uint32_t unused = 0;
+			const AiProcessorResult result = AiProcessorProgress(*connection, unused);
+			if (result == AiProcessorResult::Ready) {
+				delivered = true;
+				break;
+			}
+			std::this_thread::sleep_for(result == AiProcessorResult::Failed
+			                                ? AiProcessorReconnectDelay
+			                                : std::chrono::milliseconds(10));
+		}
+	} else if (lua_gettop(l) != 1) {
+		LuaError(l, "AiProcessorEnd expects a handle or a handle, reward and state");
 	}
+	AiProcessorClose(*connection);
+	AiProcessorClear(*connection);
+	auto *owner = static_cast<AiProcessorUserdata *>(luaL_checkudata(l, 1, AiProcessorHandleType));
+	owner->connection = nullptr;
 	delete connection;
-	return 0;
+	lua_pushboolean(l, delivered);
+	return 1;
 }
 
 /**
@@ -2530,9 +2836,19 @@ void AiCclRegister()
 	lua_register(Lua, "AiWaitForces", CclAiWaitForces);
 
 	// for external AI processors
-	lua_register(Lua, "AiDirectCommand", CclAiDirectCommand);
+	lua_register(Lua, "AiExternalDecisionAuthority", CclAiExternalDecisionAuthority);
+	lua_register(Lua, "AiPublishCommandBatch", CclAiPublishCommandBatch);
 	lua_register(Lua, "AiCanBuildAt", CclAiCanBuildAt);
+	luaL_newmetatable(Lua, AiProcessorHandleType);
+	lua_pushcfunction(Lua, CclAiProcessorGc);
+	lua_setfield(Lua, -2, "__gc");
+	lua_pushliteral(Lua, "protected");
+	lua_setfield(Lua, -2, "__metatable");
+	lua_pop(Lua, 1);
 	lua_register(Lua, "AiProcessorSetup", CclAiProcessorSetup);
+	lua_register(Lua, "AiProcessorBegin", CclAiProcessorBegin);
+	lua_register(Lua, "AiProcessorPoll", CclAiProcessorPoll);
+	lua_register(Lua, "AiProcessorCancel", CclAiProcessorCancel);
 	lua_register(Lua, "AiProcessorStep", CclAiProcessorStep);
 	lua_register(Lua, "AiProcessorEnd", CclAiProcessorEnd);
 }

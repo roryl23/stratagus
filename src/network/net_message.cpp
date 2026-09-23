@@ -33,15 +33,14 @@
 // Includes
 //----------------------------------------------------------------------------
 
-#include "stratagus.h"
-
 #include "net_message.h"
 
 #include "net_lowlevel.h"
 #include "netconnect.h"
 #include "network.h"
-#include "version.h"
 #include "parameters.h"
+#include "stratagus.h"
+#include "version.h"
 
 size_t serialize32(unsigned char *buf, uint32_t data)
 {
@@ -90,7 +89,7 @@ size_t serialize8(unsigned char *buf, int8_t data)
 	return sizeof(data);
 }
 template <int N>
-size_t serialize(unsigned char *buf, const char(&data)[N])
+size_t serialize(unsigned char *buf, const char (&data)[N])
 {
 	if (buf) {
 		memcpy(buf, data, N);
@@ -113,7 +112,7 @@ size_t serialize(unsigned char *buf, const std::string &s)
 		//Wyrmgus end
 	}
 	//Wyrmgus start
-//	return 2 + ((s.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
+	//	return 2 + ((s.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
 	return 2 + (s.size() + 3);
 	//Wyrmgus end
 }
@@ -127,13 +126,13 @@ size_t serialize(unsigned char *buf, const std::vector<unsigned char> &data)
 		memcpy(buf, &data[0], data.size());
 		buf += data.size();
 		//Wyrmgus start
-//		if ((data.size() & 0x03) != 0) {
-//			memset(buf, 0, data.size() & 0x03);
-//		}
+		//		if ((data.size() & 0x03) != 0) {
+		//			memset(buf, 0, data.size() & 0x03);
+		//		}
 		//Wyrmgus end
 	}
 	//Wyrmgus start
-//	return 2 + ((data.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
+	//	return 2 + ((data.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
 	return 2 + (data.size() + 3);
 	//Wyrmgus end
 }
@@ -173,7 +172,7 @@ size_t deserialize8(const unsigned char *buf, int8_t *data)
 	return sizeof(*data);
 }
 template <int N>
-size_t deserialize(const unsigned char *buf, char(&data)[N])
+size_t deserialize(const unsigned char *buf, char (&data)[N])
 {
 	memcpy(data, buf, N);
 	return N;
@@ -185,7 +184,7 @@ size_t deserialize(const unsigned char *buf, std::string &s)
 	buf += deserialize16(buf, &size);
 	s = std::string(reinterpret_cast<const char *>(buf), size);
 	//Wyrmgus start
-//	return 2 + ((s.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
+	//	return 2 + ((s.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
 	return 2 + (s.size() + 3);
 	//Wyrmgus end
 }
@@ -196,7 +195,7 @@ size_t deserialize(const unsigned char *buf, std::vector<unsigned char> &data)
 	buf += deserialize16(buf, &size);
 	data.assign(buf, buf + size);
 	//Wyrmgus start
-//	return 2 + ((data.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
+	//	return 2 + ((data.size() + 3) & ~0x03); // round up to multiple of 4 for alignment.
 	return 2 + (data.size() + 3);
 	//Wyrmgus end
 }
@@ -284,32 +283,32 @@ size_t CServerSetup::Serialize(unsigned char *buf) const
 size_t CServerSetup::Deserialize(const unsigned char *p)
 {
 	const unsigned char *buf = p;
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.DefeatReveal));
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.Difficulty));
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.FoV));
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.GameType));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.DefeatReveal));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.Difficulty));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.FoV));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.GameType));
 	// Inside is part of the bitfield
 	// NetGameType is not needed
 	// NoFogOfWar is part of the bitfield
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.NumUnits));
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.Opponents));
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.Resources));
-	p += deserialize8(p, reinterpret_cast<int8_t*>(&this->ServerGameSettings.RevealMap));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.NumUnits));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.Opponents));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.Resources));
+	p += deserialize8(p, reinterpret_cast<int8_t *>(&this->ServerGameSettings.RevealMap));
 	// The bitfield contains Inside and NoFogOfWar, as well as game-defined settings
 	std::uint32_t bitfield = 0;
 	p += deserialize32(p, &bitfield);
 	this->ServerGameSettings.setBitfield(bitfield);
 	for (auto &preset : this->ServerGameSettings.Presets) {
-		p += deserialize8(p, reinterpret_cast<int8_t*>(&preset.Race));
-		p += deserialize8(p, reinterpret_cast<int8_t*>(&preset.PlayerColor));
-		p += deserialize8(p, reinterpret_cast<int8_t*>(&preset.Team));
-		p += deserialize8(p, reinterpret_cast<int8_t*>(&preset.Type));
+		p += deserialize8(p, reinterpret_cast<int8_t *>(&preset.Race));
+		p += deserialize8(p, reinterpret_cast<int8_t *>(&preset.PlayerColor));
+		p += deserialize8(p, reinterpret_cast<int8_t *>(&preset.Team));
+		p += deserialize8(p, reinterpret_cast<int8_t *>(&preset.Type));
 		char aiScript[NetAIScriptNameSize]{};
 		p += deserialize(p, aiScript);
 		preset.AIScript = aiScript;
 	}
 	for (auto &compOpt : this->CompOpt) {
-		p += deserialize8(p, reinterpret_cast<int8_t*>(&compOpt));
+		p += deserialize8(p, reinterpret_cast<int8_t *>(&compOpt));
 	}
 	for (auto &ready : this->Ready) {
 		p += deserialize8(p, &ready);
@@ -324,11 +323,12 @@ void CServerSetup::Clear()
 	ranges::fill(Ready, 0);
 }
 
-void CServerSetup::Save(const std::function <void (std::string)>& f) {
+void CServerSetup::Save(const std::function<void(std::string)> &f)
+{
 	for (int i = 0; i < PlayerMax; i++) {
 		f(std::to_string(i));
 		f(": CO: ");
-		f(std::to_string((int)CompOpt[i]));
+		f(std::to_string((int) CompOpt[i]));
 		f("   Race: ");
 		f(std::to_string(ServerGameSettings.Presets[i].Race));
 		if (CompOpt[i] == SlotOption::Available) {
@@ -352,7 +352,7 @@ void CServerSetup::Save(const std::function <void (std::string)>& f) {
 	}
 }
 
-bool CServerSetup::operator == (const CServerSetup &rhs) const
+bool CServerSetup::operator==(const CServerSetup &rhs) const
 {
 	return (ServerGameSettings == rhs.ServerGameSettings && ranges::equal(CompOpt, rhs.CompOpt)
 	        && ranges::equal(Ready, rhs.Ready));
@@ -382,8 +382,7 @@ size_t CInitMessage_Header::Deserialize(const unsigned char *p)
 // CInitMessage_Hello
 //
 
-CInitMessage_Hello::CInitMessage_Hello(const char *name) :
-	header(MessageInit_FromClient, ICMHello)
+CInitMessage_Hello::CInitMessage_Hello(const char *name) : header(MessageInit_FromClient, ICMHello)
 {
 	strncpy_s(this->PlyName, sizeof(this->PlyName), name, _TRUNCATE);
 	this->Stratagus = StratagusVersion;
@@ -414,10 +413,8 @@ void CInitMessage_Hello::Deserialize(const unsigned char *p)
 // CInitMessage_Config
 //
 
-CInitMessage_Config::CInitMessage_Config() :
-	header(MessageInit_FromServer, ICMConfig)
-{
-}
+CInitMessage_Config::CInitMessage_Config() : header(MessageInit_FromServer, ICMConfig)
+{}
 
 std::vector<unsigned char> CInitMessage_Config::Serialize() const
 {
@@ -474,8 +471,7 @@ void CInitMessage_EngineMismatch::Deserialize(const unsigned char *p)
 CInitMessage_LuaFilesMismatch::CInitMessage_LuaFilesMismatch() :
 	header(MessageInit_FromServer, ICMLuaFilesMismatch),
 	Version(FileChecksums)
-{
-}
+{}
 
 std::vector<unsigned char> CInitMessage_LuaFilesMismatch::Serialize() const
 {
@@ -501,8 +497,7 @@ CInitMessage_Welcome::CInitMessage_Welcome() :
 	header(MessageInit_FromServer, ICMWelcome),
 	Lag(CNetworkParameter::Instance.NetworkLag),
 	gameCyclesPerUpdate(CNetworkParameter::Instance.gameCyclesPerUpdate)
-{
-}
+{}
 
 std::vector<unsigned char> CInitMessage_Welcome::Serialize() const
 {
@@ -571,7 +566,9 @@ CInitMessage_MapFileFragment::CInitMessage_MapFileFragment(uint32_t fragment) :
 	this->FragmentIndex = fragment;
 }
 
-CInitMessage_MapFileFragment::CInitMessage_MapFileFragment(const std::string_view path, const std::vector<char> &data, uint32_t fragment) :
+CInitMessage_MapFileFragment::CInitMessage_MapFileFragment(const std::string_view path,
+                                                           const std::vector<char> &data,
+                                                           uint32_t fragment) :
 	header(MessageInit_FromServer, ICMMapNeeded)
 {
 	const auto pathSize = path.size();
@@ -613,8 +610,7 @@ void CInitMessage_MapFileFragment::Deserialize(const unsigned char *p)
 CInitMessage_State::CInitMessage_State(int type, const CServerSetup &data) :
 	header(type, ICMState),
 	State(data)
-{
-}
+{}
 
 std::vector<unsigned char> CInitMessage_State::Serialize() const
 {
@@ -636,10 +632,8 @@ void CInitMessage_State::Deserialize(const unsigned char *p)
 // CInitMessage_Resync
 //
 
-CInitMessage_Resync::CInitMessage_Resync() :
-	header(MessageInit_FromServer, ICMResync)
-{
-}
+CInitMessage_Resync::CInitMessage_Resync() : header(MessageInit_FromServer, ICMResync)
+{}
 
 std::vector<unsigned char> CInitMessage_Resync::Serialize() const
 {
@@ -860,15 +854,30 @@ size_t CNetworkPacket::Serialize(unsigned char *buf, int numcommands) const
 
 void CNetworkPacket::Deserialize(const unsigned char *p, unsigned int len, int *commandCount)
 {
+	*commandCount = -1;
+	if (len < CNetworkPacketHeader::Size()) {
+		return;
+	}
 	this->Header.Deserialize(p);
 	p += CNetworkPacketHeader::Size();
 	len -= CNetworkPacketHeader::Size();
 
-	for (*commandCount = 0; len != 0; ++*commandCount) {
-		const size_t r = deserialize(p, this->Command[*commandCount]);
-		p += r;
-		len -= r;
+	int count = 0;
+	while (len != 0) {
+		if (count == MaxNetworkCommands || len < 2) {
+			return;
+		}
+		const size_t commandSize = (static_cast<size_t>(p[0]) << 8) | p[1];
+		// The existing packet vector codec reserves three padding bytes.
+		if (commandSize + 5 > len || commandSize > 1024) {
+			return;
+		}
+		this->Command[count].assign(p + 2, p + 2 + commandSize);
+		p += commandSize + 5;
+		len -= commandSize + 5;
+		++count;
 	}
+	*commandCount = count;
 }
 
 size_t CNetworkPacket::Size(int numcommands) const

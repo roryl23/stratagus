@@ -134,6 +134,12 @@ extern Socket NetOpenTCP(const char *addr, int port);
 extern void NetCloseTCP(Socket sockfd);
 /// Open a TCP connection.
 extern int NetConnectTCP(Socket sockfd, unsigned long addr, int port);
+/// Start a TCP connection on a non-blocking socket: 1 connected, 0 pending, -1 failed.
+extern int NetConnectTCPNonBlocking(Socket sockfd, unsigned long addr, int port);
+/// Complete a pending non-blocking connect without waiting: 1 connected, 0 pending, -1 failed.
+extern int NetTCPConnectStatus(Socket sockfd);
+/// Send without waiting: bytes sent, 0 for would-block/interruption, -1 for failure.
+extern int NetSendTCPNonBlocking(Socket sockfd, const void *buf, int len);
 /// Send through a TCP socket
 extern int NetSendTCP(Socket sockfd, const void *buf, int len);
 /// Receive from a TCP socket.

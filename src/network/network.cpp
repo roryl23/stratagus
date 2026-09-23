@@ -219,9 +219,6 @@
 //  Includes
 //----------------------------------------------------------------------------
 
-#include "online_service.h"
-#include "stratagus.h"
-
 #include "network.h"
 
 #include "actions.h"
@@ -231,10 +228,12 @@
 #include "net_lowlevel.h"
 #include "net_message.h"
 #include "netconnect.h"
+#include "online_service.h"
 #include "parameters.h"
 #include "player.h"
 #include "replay.h"
 #include "sound.h"
+#include "stratagus.h"
 #include "translate.h"
 #include "unit.h"
 #include "unit_manager.h"
@@ -259,17 +258,22 @@ class CNetworkCommandQueue
 {
 public:
 	CNetworkCommandQueue() : Time(0), Type(0) {}
-	void Clear() { this->Time = this->Type = 0; Data.clear(); }
+	void Clear()
+	{
+		this->Time = this->Type = 0;
+		Data.clear();
+	}
 
-	bool operator == (const CNetworkCommandQueue &rhs) const
+	bool operator==(const CNetworkCommandQueue &rhs) const
 	{
 		return Time == rhs.Time && Type == rhs.Type && Data == rhs.Data;
 	}
-	bool operator != (const CNetworkCommandQueue &rhs) const { return !(*this == rhs); }
+	bool operator!=(const CNetworkCommandQueue &rhs) const { return !(*this == rhs); }
+
 public:
-	unsigned long Time;    /// time to execute
-	unsigned char Type;    /// Command Type
-	std::vector<unsigned char> Data;  /// command content (network format)
+	unsigned long Time; /// time to execute
+	unsigned char Type; /// Command Type
+	std::vector<unsigned char> Data; /// command content (network format)
 };
 
 //----------------------------------------------------------------------------
@@ -293,36 +297,121 @@ void CNetworkParameter::FixValues()
 	NetworkLag = std::max(NetworkLag, 2u * gameCyclesPerUpdate);
 }
 
-bool NetworkInSync = true;                 /// Network is in sync
+bool NetworkInSync = true; /// Network is in sync
 
-CUDPSocket NetworkFildes;                  /// Network file descriptor
+CUDPSocket NetworkFildes; /// Network file descriptor
 
 static unsigned long NetworkLastFrame[PlayerMax]; /// Last frame received packet
 static unsigned long NetworkLastCycle[PlayerMax]; /// Last cycle received packet
 
-static unsigned int NetworkSyncSeeds[256];          /// Network sync seeds.
-static unsigned int NetworkSyncHashs[256];          /// Network sync hashs.
-static unsigned long NetworkSyncCycles[256];        /// Game cycle sampled for sync data.
-static unsigned long NetworkFirstDesyncGameCycle;   /// First cycle that detected a desync.
+static unsigned int NetworkSyncSeeds[256]; /// Network sync seeds.
+static unsigned int NetworkSyncHashs[256]; /// Network sync hashs.
+static unsigned long NetworkSyncCycles[256]; /// Game cycle sampled for sync data.
+static unsigned long NetworkFirstDesyncGameCycle; /// First cycle that detected a desync.
 static unsigned long NetworkFirstDesyncSampleCycle; /// First sampled cycle that diverged.
-static bool NetworkGameInSync = true;               /// Last sync command comparison result.
-static CNetworkCommandQueue NetworkIn[256][PlayerMax][MaxNetworkCommands]; /// Per-player network packet input queue
-static std::deque<CNetworkCommandQueue> CommandsIn;    /// Network command input queue
+static bool NetworkGameInSync = true; /// Last sync command comparison result.
+static CNetworkCommandQueue NetworkIn[256][PlayerMax]
+									 [MaxNetworkCommands]; /// Per-player network packet input queue
+static size_t PendingAiBatches = 0;
+static std::deque<CNetworkCommandQueue> CommandsIn; /// Network command input queue
 static std::deque<CNetworkCommandQueue> MsgCommandsIn; /// Network message input queue
 
+namespace
+{
+constexpr size_t MaxGamePacketBytes = 1024;
+constexpr size_t AiBatchHeaderBytes = 6;
+constexpr size_t AiBatchPrimitiveBytes = 9;
+
+static void WriteAiWord(std::vector<unsigned char> &data, uint16_t value)
+{
+	data.push_back(static_cast<unsigned char>(value >> 8));
+	data.push_back(static_cast<unsigned char>(value));
+}
+
+static uint16_t ReadAiWord(const unsigned char *data)
+{
+	return static_cast<uint16_t>((static_cast<unsigned int>(data[0]) << 8) | data[1]);
+}
+
+static std::vector<unsigned char> SerializeAiBatch(const AiCommandBatch &batch)
+{
+	std::vector<unsigned char> data;
+	data.reserve(AiBatchHeaderBytes + AiBatchPrimitiveBytes * batch.commands.size());
+	data.push_back(batch.player);
+	data.push_back(static_cast<unsigned char>(batch.sequence >> 24));
+	data.push_back(static_cast<unsigned char>(batch.sequence >> 16));
+	data.push_back(static_cast<unsigned char>(batch.sequence >> 8));
+	data.push_back(static_cast<unsigned char>(batch.sequence));
+	data.push_back(static_cast<unsigned char>(batch.commands.size()));
+	for (const AiCommandPrimitive &command : batch.commands) {
+		data.push_back(static_cast<unsigned char>(command.verb));
+		WriteAiWord(data, command.actor);
+		WriteAiWord(data, command.x);
+		WriteAiWord(data, command.y);
+		WriteAiWord(data, command.target);
+	}
+	return data;
+}
+
+static bool DeserializeAiBatch(const std::vector<unsigned char> &data, AiCommandBatch &batch)
+{
+	if (data.size() < AiBatchHeaderBytes || data[5] == 0 || data[5] > AiCommandBatch::MaxCommands
+	    || data.size() != AiBatchHeaderBytes + data[5] * AiBatchPrimitiveBytes) {
+		return false;
+	}
+	batch.player = data[0];
+	batch.sequence = (static_cast<uint32_t>(data[1]) << 24) | (static_cast<uint32_t>(data[2]) << 16)
+	               | (static_cast<uint32_t>(data[3]) << 8) | data[4];
+	batch.commands.reserve(data[5]);
+	for (size_t offset = AiBatchHeaderBytes; offset < data.size();
+	     offset += AiBatchPrimitiveBytes) {
+		batch.commands.push_back({static_cast<AiCommandVerb>(data[offset]),
+		                          ReadAiWord(&data[offset + 1]),
+		                          ReadAiWord(&data[offset + 3]),
+		                          ReadAiWord(&data[offset + 5]),
+		                          ReadAiWord(&data[offset + 7])});
+	}
+	return true;
+}
+} // namespace
+
+bool NetworkAiDecisionAuthority()
+{
+	if (IsReplayGame()) {
+		return false;
+	}
+	if (NetConnectType == 1) {
+		return IsNetworkGame();
+	}
+	if (NetConnectType == 2) {
+		return false;
+	}
+	return !IsNetworkGame();
+}
+
+bool NetworkPublishAiCommandBatch(const AiCommandBatch &batch)
+{
+	// Bound the AI share of the existing FIFO even if the network stalls.
+	if (!NetworkAiDecisionAuthority() || !ThisPlayer || !CanExecuteAiCommandBatch(batch)
+	    || PendingAiBatches >= 64) {
+		return false;
+	}
+	CNetworkCommandQueue command;
+	command.Time = GameCycle;
+	command.Type = MessageAiCommandBatch;
+	command.Data = SerializeAiBatch(batch);
+	CommandsIn.push_back(std::move(command));
+	++PendingAiBatches;
+	return true;
+}
 
 #ifdef DEBUG
 class CNetworkStat
 {
 public:
-	CNetworkStat() :
-		resentPacketCount(0)
-	{}
+	CNetworkStat() : resentPacketCount(0) {}
 
-	void print() const
-	{
-		DebugPrint("resent: %d packets\n", resentPacketCount);
-	}
+	void print() const { DebugPrint("resent: %d packets\n", resentPacketCount); }
 
 public:
 	unsigned int resentPacketCount;
@@ -344,7 +433,7 @@ static void printStatistic(const CUDPSocket::CStatistic &statistic)
 static CNetworkStat NetworkStat;
 #endif
 
-static int PlayerQuit[PlayerMax];          /// Player quit
+static int PlayerQuit[PlayerMax]; /// Player quit
 
 //----------------------------------------------------------------------------
 //  Mid-Level api functions
@@ -384,7 +473,7 @@ static void NetworkBroadcast(const CNetworkPacket &packet, int numcommands, int 
 **
 **  @param ncq  Outgoing network queue start.
 */
-static void NetworkSendPacket(const CNetworkCommandQueue(&ncq)[MaxNetworkCommands])
+static void NetworkSendPacket(const CNetworkCommandQueue (&ncq)[MaxNetworkCommands])
 {
 	CNetworkPacket packet;
 
@@ -466,6 +555,7 @@ void ExitNetwork1()
 
 	NetworkInSync = true;
 	NetPlayers = 0;
+	PendingAiBatches = 0;
 }
 
 /**
@@ -475,6 +565,7 @@ void NetworkOnStartGame()
 {
 	if (!IsNetworkGame()) {
 		// really a single player game, but we use the command queue for determinism in replays
+		NetConnectType = 0; // A previous network lobby must not own an offline game.
 		CNetworkParameter::Instance.NetworkLag = 1;
 	} else {
 		CNetworkParameter::Instance.NetworkLag = 10;
@@ -489,6 +580,7 @@ void NetworkOnStartGame()
 	           NetPlayers);
 
 	NetworkInSync = true;
+	PendingAiBatches = 0;
 	CommandsIn.clear();
 	MsgCommandsIn.clear();
 	// Prepare first time without syncs.
@@ -505,7 +597,8 @@ void NetworkOnStartGame()
 
 	// push initial sync messages into command queues
 	// timfel: why is this done on all clients and not just on the server?
-	for (unsigned int i = 0; i <= CNetworkParameter::Instance.NetworkLag; i += CNetworkParameter::Instance.gameCyclesPerUpdate) {
+	for (unsigned int i = 0; i <= CNetworkParameter::Instance.NetworkLag;
+	     i += CNetworkParameter::Instance.gameCyclesPerUpdate) {
 		for (int n = 0; n < NetPlayers; ++n) {
 			CNetworkCommandQueue(&ncqs)[MaxNetworkCommands] = NetworkIn[i][Hosts[n].PlyNr];
 
@@ -596,8 +689,7 @@ void NetworkSendCommand(int command,
 **  @param arg4     optional argument #4
 **  @param status   Append command or flush old commands.
 */
-void NetworkSendExtendedCommand(int command, int arg1, int arg2, int arg3,
-								int arg4, int status)
+void NetworkSendExtendedCommand(int command, int arg1, int arg2, int arg3, int arg4, int status)
 {
 	CNetworkCommandQueue ncq;
 
@@ -762,10 +854,12 @@ static bool IsAValidCommand_Command(const CNetworkPacket &packet, int index, con
 	CNetworkCommand nc;
 	nc.Deserialize(&packet.Command[index][0]);
 	const unsigned int slot = nc.Unit;
-	const CUnit *unit = slot < UnitManager->GetUsedSlotCount() ? &UnitManager->GetSlotUnit(slot) : nullptr;
+	const CUnit *unit =
+		slot < UnitManager->GetUsedSlotCount() ? &UnitManager->GetSlotUnit(slot) : nullptr;
 
-	if (unit && (unit->Player->Index == player
-				 || Players[player].IsTeamed(*unit) || unit->Player->Type == PlayerTypes::PlayerNeutral)) {
+	if (unit
+	    && (unit->Player->Index == player || Players[player].IsTeamed(*unit)
+	        || unit->Player->Type == PlayerTypes::PlayerNeutral)) {
 		return true;
 	} else {
 		return false;
@@ -777,7 +871,8 @@ static bool IsAValidCommand_Dismiss(const CNetworkPacket &packet, int index, con
 	CNetworkCommand nc;
 	nc.Deserialize(&packet.Command[index][0]);
 	const unsigned int slot = nc.Unit;
-	const CUnit *unit = slot < UnitManager->GetUsedSlotCount() ? &UnitManager->GetSlotUnit(slot) : nullptr;
+	const CUnit *unit =
+		slot < UnitManager->GetUsedSlotCount() ? &UnitManager->GetSlotUnit(slot) : nullptr;
 
 	if (unit && unit->Type->ClicksToExplode) {
 		return true;
@@ -787,18 +882,27 @@ static bool IsAValidCommand_Dismiss(const CNetworkPacket &packet, int index, con
 
 static bool IsAValidCommand(const CNetworkPacket &packet, int index, const int player)
 {
+	const auto &data = packet.Command[index];
 	switch (packet.Header.Type[index] & 0x7F) {
-		case MessageExtendedCommand: // FIXME: ensure the sender is part of the command
-		case MessageSync: // Sync does not matter
-		case MessageSelection: // FIXME: ensure it's from the right player
-		case MessageQuit:      // FIXME: ensure it's from the right player
-		case MessageResend:    // FIXME: ensure it's from the right player
-		case MessageChat:      // FIXME: ensure it's from the right player
-			return true;
-		case MessageCommandDismiss: return IsAValidCommand_Dismiss(packet, index, player);
-		default: return IsAValidCommand_Command(packet, index, player);
+		case MessageAiCommandBatch:
+		{
+			AiCommandBatch batch;
+			return DeserializeAiBatch(data, batch) && batch.player < NumPlayers
+			    && Players[batch.player].Type == PlayerTypes::PlayerComputer;
+		}
+		case MessageExtendedCommand: return data.size() == CNetworkExtendedCommand::Size();
+		case MessageSync: return data.size() == CNetworkCommandSync::Size();
+		case MessageSelection: return data.size() >= 4;
+		case MessageQuit: return data.size() == CNetworkCommandQuit::Size();
+		case MessageResend: return true;
+		case MessageChat: return data.size() >= 2;
+		case MessageCommandDismiss:
+			return data.size() == CNetworkCommand::Size()
+			    && IsAValidCommand_Dismiss(packet, index, player);
+		default:
+			return data.size() == CNetworkCommand::Size()
+			    && IsAValidCommand_Command(packet, index, player);
 	}
-	// FIXME: not all values in nc have been validated
 }
 
 static void NetworkParseInGameEvent(const unsigned char *buf, int len, const CHost &host)
@@ -811,26 +915,40 @@ static void NetworkParseInGameEvent(const unsigned char *buf, int len, const CHo
 	int commands;
 	packet.Deserialize(buf, len, &commands);
 
-	int player = packet.Header.OrigPlayer;
-	if (player == 255) {
-		const int index = FindHostIndexBy(host);
-		if (index == -1 || PlayerQuit[Hosts[index].PlyNr]) {
-#ifdef DEBUG
-			const std::string hostStr = host.toString();
-			DebugPrint("Not a host in play: %s\n", hostStr.c_str());
-#endif
-			return;
-		}
-		player = Hosts[index].PlyNr;
-	}
-	if (NetConnectType == 1) {
-		if (player != 255) {
-			NetworkBroadcast(packet, commands, player);
-		}
-	}
-	if (commands < 0) {
+	if (commands <= 0) {
 		DebugPrint("Bad packet read\n");
 		return;
+	}
+	const int hostIndex = FindHostIndexBy(host);
+	if (hostIndex < 0 || hostIndex >= NetPlayers || !Hosts[hostIndex].IsValid()) {
+		return;
+	}
+	const int sourcePlayer = Hosts[hostIndex].PlyNr;
+	if (sourcePlayer >= NumPlayers || PlayerQuit[sourcePlayer]) {
+		return;
+	}
+	int player = packet.Header.OrigPlayer == 255 ? sourcePlayer : packet.Header.OrigPlayer;
+	if (player >= NumPlayers || PlayerQuit[player]
+	    || (NetConnectType == 1 && player != sourcePlayer)
+	    || (NetConnectType != 1 && hostIndex != 0)) {
+		return;
+	}
+	// Only a real server-origin packet may carry an AI batch. Clients cannot
+	// impersonate the server by setting OrigPlayer; the server never relays one.
+	for (int i = 0; i < commands; ++i) {
+		if (packet.Header.Type[i] == MessageQuit
+		    && packet.Command[i].size() != CNetworkCommandQuit::Size()) {
+			return;
+		}
+		if ((packet.Header.Type[i] & 0x7F) == MessageAiCommandBatch
+		    && (NetConnectType == 1 || hostIndex != 0 || player != Hosts[0].PlyNr
+		        || packet.Header.Type[i] != MessageAiCommandBatch
+		        || !IsAValidCommand(packet, i, player))) {
+			return;
+		}
+	}
+	if (NetConnectType == 1) {
+		NetworkBroadcast(packet, commands, player);
 	}
 	NetworkLastCycle[player] = packet.Header.Cycle;
 	// Parse the packet commands.
@@ -889,7 +1007,8 @@ static void NetworkParseInGameEvent(const unsigned char *buf, int len, const CHo
 */
 void NetworkEvent()
 {
-	static constexpr size_t networkEventBufferSize = std::max(CInitMessage_State::Size(), static_cast<decltype(CInitMessage_State::Size())>(1024));
+	static constexpr size_t networkEventBufferSize = std::max(
+		CInitMessage_State::Size(), static_cast<decltype(CInitMessage_State::Size())>(1024));
 
 	if (!IsNetworkGame()) {
 		NetworkInSync = true;
@@ -933,7 +1052,8 @@ void NetworkQuitGame()
 	}
 	const int gameCyclesPerUpdate = CNetworkParameter::Instance.gameCyclesPerUpdate;
 	const int NetworkLag = CNetworkParameter::Instance.NetworkLag;
-	const int n = (GameCycle + gameCyclesPerUpdate) / gameCyclesPerUpdate * gameCyclesPerUpdate + NetworkLag;
+	const int n =
+		(GameCycle + gameCyclesPerUpdate) / gameCyclesPerUpdate * gameCyclesPerUpdate + NetworkLag;
 	CNetworkCommandQueue(&ncqs)[MaxNetworkCommands] = NetworkIn[n & 0xFF][ThisPlayer->Index];
 	CNetworkCommandQuit nc;
 	nc.player = ThisPlayer->Index;
@@ -976,7 +1096,7 @@ static void NetworkExecCommand_Sync(const CNetworkCommandQueue &ncq, int player)
 			std::string savefile = "desync_savegame_";
 			savefile += std::to_string(ThisPlayer->Index);
 			savefile += "_";
-			savefile += std::to_string((intmax_t)now);
+			savefile += std::to_string((intmax_t) now);
 			savefile += ".sav";
 			SaveGame(savefile);
 		}
@@ -1060,8 +1180,8 @@ static void NetworkExecCommand_ExtendedCommand(const CNetworkCommandQueue &ncq)
 	CNetworkExtendedCommand nec;
 
 	nec.Deserialize(&ncq.Data[0]);
-	ExecExtendedCommand(nec.ExtendedType, (ncq.Type & 0x80) >> 7,
-						nec.Arg1, nec.Arg2, nec.Arg3, nec.Arg4);
+	ExecExtendedCommand(
+		nec.ExtendedType, (ncq.Type & 0x80) >> 7, nec.Arg1, nec.Arg2, nec.Arg3, nec.Arg4);
 }
 
 static void NetworkExecCommand_Command(const CNetworkCommandQueue &ncq)
@@ -1070,6 +1190,17 @@ static void NetworkExecCommand_Command(const CNetworkCommandQueue &ncq)
 
 	nc.Deserialize(&ncq.Data[0]);
 	ExecCommand(ncq.Type, nc.Unit, nc.X, nc.Y, nc.Dest);
+}
+
+static void NetworkExecCommand_AiBatch(const CNetworkCommandQueue &ncq, int player)
+{
+	if (IsNetworkGame() && player != Hosts[0].PlyNr) {
+		return;
+	}
+	AiCommandBatch batch;
+	if (DeserializeAiBatch(ncq.Data, batch)) {
+		ExecuteAiCommandBatch(batch);
+	}
 }
 
 /**
@@ -1085,6 +1216,7 @@ static void NetworkExecCommand(const CNetworkCommandQueue &ncq, int player)
 		case MessageChat: NetworkExecCommand_Chat(ncq); break;
 		case MessageQuit: NetworkExecCommand_Quit(ncq); break;
 		case MessageExtendedCommand: NetworkExecCommand_ExtendedCommand(ncq); break;
+		case MessageAiCommandBatch: NetworkExecCommand_AiBatch(ncq, player); break;
 		case MessageNone:
 			// Nothing to Do, This Message Should Never be Executed
 			Assert(0);
@@ -1100,7 +1232,8 @@ static void NetworkSendCommands(unsigned long gameNetCycle)
 {
 	// No command available, send sync.
 	int numcommands = 0;
-	CNetworkCommandQueue(&ncq)[MaxNetworkCommands] = NetworkIn[gameNetCycle & 0xFF][ThisPlayer->Index];
+	CNetworkCommandQueue(&ncq)[MaxNetworkCommands] =
+		NetworkIn[gameNetCycle & 0xFF][ThisPlayer->Index];
 	ncq[0].Clear();
 	if (CommandsIn.empty() && MsgCommandsIn.empty()) {
 		CNetworkCommandSync nc;
@@ -1108,35 +1241,48 @@ static void NetworkSendCommands(unsigned long gameNetCycle)
 		nc.syncHash = SyncHash;
 		nc.syncSeed = SyncRandSeed;
 		ncq[0].Data.resize(nc.Size());
-		nc.Serialize(&ncq[0].Data[0]);
+		nc.Serialize(ncq[0].Data.data());
 		ncq[0].Time = gameNetCycle;
 		numcommands = 1;
 	} else {
-		while (!CommandsIn.empty() && numcommands < MaxNetworkCommands) {
-			const CNetworkCommandQueue &incommand = CommandsIn.front();
-#ifdef DEBUG
-			if (incommand.Type != MessageExtendedCommand) {
-				CNetworkCommand nc;
-				nc.Deserialize(&incommand.Data[0]);
-
-				const CUnit &unit = UnitManager->GetSlotUnit(nc.Unit);
-				// FIXME: we can send destroyed units over network :(
-				if (unit.Destroyed) {
-					DebugPrint("Sending destroyed unit %d over network!!!!!!\n", nc.Unit);
+		size_t packetBytes = CNetworkPacketHeader::Size();
+		// AI decisions share the human FIFO, but each is a single packet item;
+		// a nine-command backlog may defer one, never divide it across cycles.
+		for (auto *pending : {&CommandsIn, &MsgCommandsIn}) {
+			while (!pending->empty() && numcommands < MaxNetworkCommands) {
+				const CNetworkCommandQueue &next = pending->front();
+				const size_t commandBytes = next.Data.size() + 5;
+				if (packetBytes + commandBytes > MaxGamePacketBytes) {
+					if (numcommands != 0) {
+						break;
+					}
+					// An impossible item must not block every following decision.
+					if (next.Type == MessageAiCommandBatch) {
+						--PendingAiBatches;
+					}
+					pending->pop_front();
+					continue;
 				}
+				ncq[numcommands] = next;
+				ncq[numcommands].Time = gameNetCycle;
+				packetBytes += commandBytes;
+				++numcommands;
+				if (next.Type == MessageAiCommandBatch) {
+					--PendingAiBatches;
+				}
+				pending->pop_front();
 			}
-#endif
-			ncq[numcommands] = incommand;
-			ncq[numcommands].Time = gameNetCycle;
-			++numcommands;
-			CommandsIn.pop_front();
 		}
-		while (!MsgCommandsIn.empty() && numcommands < MaxNetworkCommands) {
-			const CNetworkCommandQueue &incommand = MsgCommandsIn.front();
-			ncq[numcommands] = incommand;
-			ncq[numcommands].Time = gameNetCycle;
-			++numcommands;
-			MsgCommandsIn.pop_front();
+		// A discarded oversize command still requires a heartbeat this cycle.
+		if (numcommands == 0) {
+			CNetworkCommandSync sync;
+			sync.syncHash = SyncHash;
+			sync.syncSeed = SyncRandSeed;
+			ncq[0].Type = MessageSync;
+			ncq[0].Data.resize(sync.Size());
+			sync.Serialize(ncq[0].Data.data());
+			ncq[0].Time = gameNetCycle;
+			numcommands = 1;
 		}
 	}
 	if (numcommands != MaxNetworkCommands) {
@@ -1182,7 +1328,8 @@ void NetworkCommands()
 	// Send messages to all clients (other players)
 	NetworkSendCommands(gameNetCycle + CNetworkParameter::Instance.NetworkLag);
 	NetworkExecCommands(gameNetCycle);
-	NetworkInSync = IsNetworkCommandReady(gameNetCycle + CNetworkParameter::Instance.gameCyclesPerUpdate);
+	NetworkInSync =
+		IsNetworkCommandReady(gameNetCycle + CNetworkParameter::Instance.gameCyclesPerUpdate);
 }
 
 static void CheckPlayerThatTimeOut(int hostIndex)
@@ -1199,11 +1346,14 @@ static void CheckPlayerThatTimeOut(int hostIndex)
 	// FIXME: display a menu while we wait
 	const int timeoutInS = CNetworkParameter::Instance.timeoutInS;
 	if (3 <= secs && secs < timeoutInS && FrameCounter % CyclesPerSecond == 0) {
-		SetMessage(_("Waiting for player \"%s\": %d:%02d"), Hosts[hostIndex].PlyName,
-				   (timeoutInS - secs) / 60, (timeoutInS - secs) % 60);
+		SetMessage(_("Waiting for player \"%s\": %d:%02d"),
+		           Hosts[hostIndex].PlyName,
+		           (timeoutInS - secs) / 60,
+		           (timeoutInS - secs) % 60);
 	}
 	if (secs >= timeoutInS) {
-		const unsigned int nextGameNetCycle = GameCycle / CNetworkParameter::Instance.gameCyclesPerUpdate + 1;
+		const unsigned int nextGameNetCycle =
+			GameCycle / CNetworkParameter::Instance.gameCyclesPerUpdate + 1;
 		CNetworkCommandQuit nc;
 		nc.player = playerIndex;
 		CNetworkCommandQueue *ncq = &NetworkIn[nextGameNetCycle & 0xFF][playerIndex][0];
@@ -1266,7 +1416,8 @@ void NetworkRecover()
 		CheckPlayerThatTimeOut(i);
 	}
 	NetworkResendCommands();
-	const unsigned int nextGameNetCycle = GameCycle / CNetworkParameter::Instance.gameCyclesPerUpdate + 1;
+	const unsigned int nextGameNetCycle =
+		GameCycle / CNetworkParameter::Instance.gameCyclesPerUpdate + 1;
 	NetworkInSync = IsNetworkCommandReady(nextGameNetCycle);
 }
 

@@ -33,9 +33,6 @@
 //  Includes
 //----------------------------------------------------------------------------
 
-#include "online_service.h"
-#include "stratagus.h"
-
 #include "actions.h"
 #include "editor.h"
 #include "fow.h"
@@ -43,16 +40,18 @@
 #include "map.h"
 #include "missile.h"
 #include "network.h"
+#include "online_service.h"
+#include "parameters.h"
 #include "particle.h"
 #include "replay.h"
 #include "results.h"
 #include "sound.h"
+#include "stratagus.h"
 #include "translate.h"
 #include "trigger.h"
 #include "ui.h"
 #include "unit.h"
 #include "video.h"
-#include "parameters.h"
 
 #ifdef HAVE_COZ_PROFILER
 # include <coz.h>
@@ -60,15 +59,17 @@
 
 void DrawGuichanWidgets();
 
-
-enum CallPeriod { cEvery2nd   = 0b1,
-				  cEvery4th   = 0b11,
-				  cEvery8th   = 0b111,
-				  cEvery16th  = 0b1111,
-				  cEvery32nd  = 0b11111,
-				  cEvery64th  = 0b111111,
-				  cEvery128th = 0b1111111,
-				  cEvery256th = 0b11111111 };
+enum CallPeriod
+{
+	cEvery2nd = 0b1,
+	cEvery4th = 0b11,
+	cEvery8th = 0b111,
+	cEvery16th = 0b1111,
+	cEvery32nd = 0b11111,
+	cEvery64th = 0b111111,
+	cEvery128th = 0b1111111,
+	cEvery256th = 0b11111111
+};
 
 //----------------------------------------------------------------------------
 // Variables
@@ -80,7 +81,7 @@ int KeyScrollState = ScrollNone;
 /// variable set when we are scrolling via mouse
 int MouseScrollState = ScrollNone;
 
-EventCallback GameCallbacks;   /// Game callbacks
+EventCallback GameCallbacks; /// Game callbacks
 EventCallback EditorCallbacks; /// Editor callbacks
 
 //----------------------------------------------------------------------------
@@ -113,14 +114,15 @@ void DoScrollArea(int state, bool fast, bool isKeyboard)
 	vp = UI.SelectedViewport;
 
 	if (fast) {
-		stepx = (int)(speed * vp->MapWidth / 2 * PixelTileSize.x * CYCLES_PER_SECOND / 4);
-		stepy = (int)(speed * vp->MapHeight / 2 * PixelTileSize.y * CYCLES_PER_SECOND / 4);
-	} else {// dynamic: let these variables increase up to fast..
+		stepx = (int) (speed * vp->MapWidth / 2 * PixelTileSize.x * CYCLES_PER_SECOND / 4);
+		stepy = (int) (speed * vp->MapHeight / 2 * PixelTileSize.y * CYCLES_PER_SECOND / 4);
+	} else { // dynamic: let these variables increase up to fast..
 		// FIXME: pixels per second should be configurable
-		stepx = (int)(speed * PixelTileSize.x * CYCLES_PER_SECOND / 4);
-		stepy = (int)(speed * PixelTileSize.y * CYCLES_PER_SECOND / 4);
+		stepx = (int) (speed * PixelTileSize.x * CYCLES_PER_SECOND / 4);
+		stepy = (int) (speed * PixelTileSize.y * CYCLES_PER_SECOND / 4);
 	}
-	if ((state & (ScrollLeft | ScrollRight)) && (state & (ScrollLeft | ScrollRight)) != (ScrollLeft | ScrollRight)) {
+	if ((state & (ScrollLeft | ScrollRight))
+	    && (state & (ScrollLeft | ScrollRight)) != (ScrollLeft | ScrollRight)) {
 		stepx = stepx * 3;
 		remx += stepx - (stepx / 100) * 100;
 		stepx /= 100;
@@ -131,7 +133,8 @@ void DoScrollArea(int state, bool fast, bool isKeyboard)
 	} else {
 		stepx = 0;
 	}
-	if ((state & (ScrollUp | ScrollDown)) && (state & (ScrollUp | ScrollDown)) != (ScrollUp | ScrollDown)) {
+	if ((state & (ScrollUp | ScrollDown))
+	    && (state & (ScrollUp | ScrollDown)) != (ScrollUp | ScrollDown)) {
 		stepy = stepy * 3;
 		remy += stepy - (stepy / 100) * 100;
 		stepy /= 100;
@@ -261,14 +264,14 @@ static void GameLogicLoop()
 	if (!GamePaused && NetworkInSync && SkipGameCycle < 1) {
 		SinglePlayerReplayEachCycle();
 		++GameCycle;
+		SinglePlayerReplayAfterIncrement();
 		MultiPlayerReplayEachCycle();
 		NetworkCommands(); // Get network commands
-		TriggersEachCycle();// handle triggers
-		UnitActions();      // handle units
-		MissileActions();   // handle missiles
+		TriggersEachCycle(); // handle triggers
+		UnitActions(); // handle units
+		MissileActions(); // handle missiles
 		PlayersEachCycle(); // handle players
-		UpdateTimer();      // update game timer
-
+		UpdateTimer(); // update game timer
 
 		//
 		// Work todo each second.
@@ -288,22 +291,20 @@ static void GameLogicLoop()
 					}
 				}
 				break;
-			case 1:
-				break;
-			case 2:
-				break;
+			case 1: break;
+			case 2: break;
 			case 3: // minimap update
 				UI.Minimap.UpdateCache = true;
 				break;
-			case 4:
-				break;
+			case 4: break;
 			case 5: // forest grow
 				Map.RegenerateForest();
 				break;
 			case 6: // overtaking units
 				RescueUnits();
 				break;
-			default: {
+			default:
+			{
 				// FIXME: assume that NumPlayers < (CYCLES_PER_SECOND - 7)
 				int player = (GameCycle % CYCLES_PER_SECOND) - 7;
 				Assert(player >= 0);
@@ -313,14 +314,16 @@ static void GameLogicLoop()
 			}
 		}
 
-		if (Preference.AutosaveMinutes != 0 && !IsNetworkGame() && !IsReplayGame() && GameCycle > 0 && (GameCycle % (CYCLES_PER_SECOND * 60 * Preference.AutosaveMinutes)) == 0) { // autosave every X minutes (default is 5), if the option is enabled
-		//Wyrmgus end
+		if (Preference.AutosaveMinutes != 0 && !IsNetworkGame() && !IsReplayGame() && GameCycle > 0
+		    && (GameCycle % (CYCLES_PER_SECOND * 60 * Preference.AutosaveMinutes))
+		           == 0) { // autosave every X minutes (default is 5), if the option is enabled
+			//Wyrmgus end
 			UI.StatusLine.Set(_("Autosave"));
 			SaveGame("autosave.sav");
 		}
 	}
 
-	UpdateMessages();     // update messages
+	UpdateMessages(); // update messages
 	ParticleManager.update(); // handle particles
 
 	if (FastForwardCycle <= GameCycle || !(GameCycle & CallPeriod::cEvery256th)) {
@@ -353,11 +356,14 @@ static void DisplayLoop()
 	//
 	// Map scrolling
 	//
-	DoScrollArea(MouseScrollState | KeyScrollState, (KeyModifiers & ModifierControl) != 0, MouseScrollState == 0 && KeyScrollState > 0);
+	DoScrollArea(MouseScrollState | KeyScrollState,
+	             (KeyModifiers & ModifierControl) != 0,
+	             MouseScrollState == 0 && KeyScrollState > 0);
 
 	ColorCycle();
 
-	if (FastForwardCycle <= GameCycle || GameCycle <= 10 || !(GameCycle & CallPeriod::cEvery256th)) {
+	if (FastForwardCycle <= GameCycle || GameCycle <= 10
+	    || !(GameCycle & CallPeriod::cEvery256th)) {
 		//FIXME: this might be better placed somewhere at front of the
 		// program, as we now still have a game on the background and
 		// need to go through the game-menu or supply a map file

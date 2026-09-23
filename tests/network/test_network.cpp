@@ -27,11 +27,13 @@
 //      02111-1307, USA.
 //
 
-#include <doctest.h>
-
-#include "stratagus.h"
-#include "network.h"
+#include "commands.h"
 #include "net_message.h"
+#include "network.h"
+#include "stratagus.h"
+
+#undef L
+#include <doctest.h>
 
 void FillCustomValue(CNetworkCommand *obj)
 {
@@ -94,7 +96,6 @@ bool Comp(const CNetworkSelection &lhs, const CNetworkSelection &rhs)
 	return lhs.Units == rhs.Units;
 }
 
-
 template <typename T>
 bool CheckSerialization()
 {
@@ -140,3 +141,59 @@ TEST_CASE("CNetworkPacketHeader")
 }
 //TEST_CASE("CNetworkPacket")
 
+TEST_CASE("Mixed AI batch and human command survive a packet round trip")
+{
+	CNetworkPacket packet;
+	packet.Header.Cycle = 42;
+	packet.Header.OrigPlayer = 3;
+	packet.Header.Type[0] = MessageAiCommandBatch;
+	packet.Header.Type[1] = MessageCommandMove;
+	// Player, sequence, count, then verb/actor/x/y/target for each primitive.
+	packet.Command[0] = {
+		2, 0, 0, 0, 7, 2, static_cast<unsigned char>(AiCommandVerb::Move),     0, 4,
+		0, 8, 0, 9, 0, 0, static_cast<unsigned char>(AiCommandVerb::CastAuto), 0, 5,
+		0, 0, 0, 0, 0, 3};
+	CNetworkCommand move;
+	move.Unit = 12;
+	move.X = 14;
+	move.Y = 16;
+	packet.Command[1].resize(move.Size());
+	move.Serialize(packet.Command[1].data());
+	std::vector<unsigned char> wire(packet.Size(2));
+	REQUIRE(packet.Serialize(wire.data(), 2) == wire.size());
+
+	CNetworkPacket decoded;
+	int commandCount = -1;
+	decoded.Deserialize(wire.data(), wire.size(), &commandCount);
+	REQUIRE(commandCount == 2);
+	CHECK(decoded.Header.Type[0] == MessageAiCommandBatch);
+	CHECK(decoded.Header.Type[1] == MessageCommandMove);
+	CHECK(decoded.Header.Cycle == 42);
+	CHECK(decoded.Header.OrigPlayer == 3);
+	CHECK(decoded.Command[0] == packet.Command[0]);
+	CHECK(decoded.Command[1] == packet.Command[1]);
+}
+
+TEST_CASE("Malformed and oversized network packet command lists are rejected")
+{
+	CNetworkPacket packet;
+	for (int i = 0; i != MaxNetworkCommands; ++i) {
+		packet.Header.Type[i] = MessageCommandMove;
+		packet.Command[i] = std::vector<unsigned char>(CNetworkCommand::Size(), i);
+	}
+	std::vector<unsigned char> wire(packet.Size(MaxNetworkCommands));
+	packet.Serialize(wire.data(), MaxNetworkCommands);
+	CNetworkPacket decoded;
+	int commandCount = 0;
+
+	decoded.Deserialize(wire.data(), CNetworkPacketHeader::Size() - 1, &commandCount);
+	CHECK(commandCount == -1);
+	decoded.Deserialize(wire.data(), wire.size() - 1, &commandCount);
+	CHECK(commandCount == -1);
+	decoded.Deserialize(wire.data(), wire.size(), &commandCount);
+	CHECK(commandCount == MaxNetworkCommands);
+	// A tenth length-prefixed item exceeds the fixed packet command count.
+	wire.insert(wire.end(), {0, 0, 0, 0, 0});
+	decoded.Deserialize(wire.data(), wire.size(), &commandCount);
+	CHECK(commandCount == -1);
+}

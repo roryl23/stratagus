@@ -43,6 +43,7 @@
 
 class CUnit;
 class CUnitType;
+struct AiCommandBatch;
 
 enum class EFlushMode;
 
@@ -51,12 +52,13 @@ class CNetworkParameter
 public:
 	CNetworkParameter();
 	void FixValues();
+
 public:
-	std::string localHost;  /// Local network address to use
+	std::string localHost; /// Local network address to use
 	unsigned int localPort; /// Local network port to use
-	unsigned int gameCyclesPerUpdate;  /// Network update each # game cycles
-	unsigned int NetworkLag;      /// Network lag (# update cycles)
-	unsigned int timeoutInS;      /// Number of seconds until player times out
+	unsigned int gameCyclesPerUpdate; /// Network update each # game cycles
+	unsigned int NetworkLag; /// Network lag (# update cycles)
+	unsigned int timeoutInS; /// Number of seconds until player times out
 
 public:
 	static const int defaultPort = 6660; /// Default communication port
@@ -68,23 +70,30 @@ public:
 --  Variables
 ----------------------------------------------------------------------------*/
 
-extern CUDPSocket NetworkFildes;  /// Network file descriptor
-extern bool NetworkInSync;        /// Network is in sync
+extern CUDPSocket NetworkFildes; /// Network file descriptor
+extern bool NetworkInSync; /// Network is in sync
 
 /*----------------------------------------------------------------------------
 --  Functions
 ----------------------------------------------------------------------------*/
 
-extern inline bool IsNetworkGame() { return NetworkFildes.IsValid(); }
-extern void InitNetwork1();  /// Initialise network
-extern void ExitNetwork1();  /// Cleanup network (port)
-extern void NetworkOnStartGame();  /// Initialise network data for ingame communication
-extern void NetworkEvent();  /// Handle network events
-extern void NetworkSync();   /// Hold in sync
-extern void NetworkQuitGame();  /// Quit game: warn other users
-extern void NetworkRecover();   /// Recover network
-extern void NetworkCommands();  /// Get all network commands
-extern void NetworkSendChatMessage(const std::string &msg);  /// Send chat message
+extern inline bool IsNetworkGame()
+{
+	return NetworkFildes.IsValid();
+}
+extern void InitNetwork1(); /// Initialise network
+extern void ExitNetwork1(); /// Cleanup network (port)
+extern void NetworkOnStartGame(); /// Initialise network data for ingame communication
+extern void NetworkEvent(); /// Handle network events
+extern void NetworkSync(); /// Hold in sync
+extern void NetworkQuitGame(); /// Quit game: warn other users
+extern void NetworkRecover(); /// Recover network
+extern void NetworkCommands(); /// Get all network commands
+extern void NetworkSendChatMessage(const std::string &msg); /// Send chat message
+/// Only the single-player instance or the actual multiplayer server decides AI actions.
+extern bool NetworkAiDecisionAuthority();
+/// Append an atomic AI decision to the ordinary command FIFO.
+extern bool NetworkPublishAiCommandBatch(const AiCommandBatch &batch);
 /// Send network command.
 extern void NetworkSendCommand(int command,
                                const CUnit &unit,
@@ -94,8 +103,8 @@ extern void NetworkSendCommand(int command,
                                const CUnitType *type,
                                EFlushMode flush);
 /// Send extended network command.
-extern void NetworkSendExtendedCommand(int command, int arg1, int arg2,
-									   int arg3, int arg4, int status);
+extern void
+NetworkSendExtendedCommand(int command, int arg1, int arg2, int arg3, int arg4, int status);
 /// Send Selections to Team
 extern void NetworkSendSelection(CUnit **units, int count);
 

@@ -200,6 +200,15 @@ public:
 	{
 		return NetConnectTCP(socket, host.getIp(), host.getPort()) != -1;
 	}
+	int ConnectNonBlocking(const CHost &host)
+	{
+		return NetConnectTCPNonBlocking(socket, host.getIp(), host.getPort());
+	}
+	int ConnectStatus() { return NetTCPConnectStatus(socket); }
+	int SendNonBlocking(const void *buf, unsigned int len)
+	{
+		return NetSendTCPNonBlocking(socket, buf, static_cast<int>(len));
+	}
 	int Send(const void *buf, unsigned int len) { return NetSendTCP(socket, buf, len); }
 	int Recv(void *buf, int len)
 	{
@@ -244,6 +253,21 @@ void CTCPSocket::Close()
 bool CTCPSocket::Connect(const CHost &host)
 {
 	return m_impl->Connect(host);
+}
+
+int CTCPSocket::ConnectNonBlocking(const CHost &host)
+{
+	return m_impl->ConnectNonBlocking(host);
+}
+
+int CTCPSocket::ConnectStatus()
+{
+	return m_impl->ConnectStatus();
+}
+
+int CTCPSocket::SendNonBlocking(const void *buf, unsigned int len)
+{
+	return m_impl->SendNonBlocking(buf, len);
 }
 
 int CTCPSocket::Send(const void *buf, unsigned int len)

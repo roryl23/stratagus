@@ -54,7 +54,12 @@
 #include "unittype.h"
 #include "version.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <ctime>
+#include <initializer_list>
+#include <limits>
 #include <sstream>
 
 extern fs::path ExpandPath(const std::string &path);
@@ -81,6 +86,8 @@ public:
 	int DestUnitNumber = 0;
 	std::string Value;
 	int Num = 0;
+	AiCommandBatch AiBatch;
+	bool BeforeIncrement = false; // Immediate event commands run after this cycle's simulation.
 	unsigned SyncRandSeed = 0;
 };
 
@@ -105,6 +112,8 @@ public:
 	Settings ReplaySettings;
 	int Engine[3]{};
 	int Network[3]{};
+	// An absent field in older replays means commands precede the increment.
+	bool PostIncrementCommands = false;
 	std::vector<LogEntry> Commands;
 };
 
@@ -112,26 +121,26 @@ public:
 // Constants
 //----------------------------------------------------------------------------
 
-
 //----------------------------------------------------------------------------
 // Variables
 //----------------------------------------------------------------------------
 
-bool CommandLogDisabled;           /// True if command log is off
-EReplayType ReplayGameType;        /// Replay game type
-static bool DisabledLog;           /// Disabled log for replay
+bool CommandLogDisabled; /// True if command log is off
+EReplayType ReplayGameType; /// Replay game type
+static bool DisabledLog; /// Disabled log for replay
 static std::unique_ptr<CFile> LogFile; /// Replay log file
-static fs::path LastLogFileName;   /// Last log file name
+static fs::path LastLogFileName; /// Last log file name
 static unsigned long NextLogCycle; /// Next log cycle number
-static bool InitReplay;             /// Initialize replay
+static bool InitReplay; /// Initialize replay
 static std::unique_ptr<FullReplay> CurrentReplay;
 static std::optional<std::size_t> ReplayIndex;
 
 static void WarnLegacyReplayField(std::string_view field)
 {
-	ErrorPrint("Warning: legacy replay/savegame field '%.*s' found; loading with compatibility handling\n",
-	           static_cast<int>(field.size()),
-	           field.data());
+	ErrorPrint(
+		"Warning: legacy replay/savegame field '%.*s' found; loading with compatibility handling\n",
+		static_cast<int>(field.size()),
+		field.data());
 }
 
 //----------------------------------------------------------------------------
@@ -173,7 +182,8 @@ static std::unique_ptr<FullReplay> StartReplay()
 		// we check GameSettings.Presets[i].Team != SettingsPresetMapDefault)
 		// So in order for the replay to work, we must not save the actual player
 		// teams, but instead the preset teams.
-		replay->ReplaySettings.Presets[i].AIScript = Players[i].AiName; // GameSettings.Presets[i].AIScript;
+		replay->ReplaySettings.Presets[i].AIScript =
+			Players[i].AiName; // GameSettings.Presets[i].AIScript;
 		replay->ReplaySettings.Presets[i].Race = Players[i].Race; // GameSettings.Presets[i].Race;
 		replay->ReplaySettings.Presets[i].Team = GameSettings.Presets[i].Team; // Players[i].Team;
 		replay->ReplaySettings.Presets[i].Type = Players[i].Type; // GameSettings.Presets[i].Type;
@@ -183,7 +193,7 @@ static std::unique_ptr<FullReplay> StartReplay()
 
 	replay->Date = dateStr;
 	replay->Map = Map.Info.Description;
-	replay->MapId = (signed int)Map.Info.MapUID;
+	replay->MapId = (signed int) Map.Info.MapUID;
 	replay->MapPath = CurrentMapPath;
 
 	replay->Engine[0] = StratagusMajorVersion;
@@ -193,6 +203,7 @@ static std::unique_ptr<FullReplay> StartReplay()
 	replay->Network[0] = NetworkProtocolMajorVersion;
 	replay->Network[1] = NetworkProtocolMinorVersion;
 	replay->Network[2] = NetworkProtocolPatchLevel;
+	replay->PostIncrementCommands = true;
 	return replay;
 }
 
@@ -227,6 +238,23 @@ static void ApplyReplaySettings()
 	// FIXME : check mapid
 }
 
+static constexpr const char *AiVerbNames[] = {"stop",
+                                              "stand-ground",
+                                              "explore",
+                                              "attack",
+                                              "resource",
+                                              "repair",
+                                              "resource-loc",
+                                              "move",
+                                              "cast-position",
+                                              "build-at",
+                                              "build",
+                                              "train",
+                                              "cast-auto",
+                                              "research"};
+static_assert(sizeof(AiVerbNames) / sizeof(*AiVerbNames)
+              == static_cast<size_t>(AiCommandVerb::Research) + 1);
+
 static void PrintLogCommand(const LogEntry &log, CFile &file)
 {
 	file.printf("Log( { ");
@@ -237,7 +265,24 @@ static void PrintLogCommand(const LogEntry &log, CFile &file)
 	if (!log.UnitIdent.empty()) {
 		file.printf("UnitIdent = \"%s\", ", log.UnitIdent.c_str());
 	}
+	if (log.Action == "ai-command-batch") {
+		file.printf("AiBatch = { Player = %u, Sequence = %u, Commands = {",
+		            static_cast<unsigned>(log.AiBatch.player),
+		            log.AiBatch.sequence);
+		for (const auto &command : log.AiBatch.commands) {
+			file.printf(" { Verb = \"%s\", Actor = %u, X = %u, Y = %u, Target = %u },",
+			            AiVerbNames[static_cast<size_t>(command.verb)],
+			            static_cast<unsigned>(command.actor),
+			            static_cast<unsigned>(command.x),
+			            static_cast<unsigned>(command.y),
+			            static_cast<unsigned>(command.target));
+		}
+		file.printf(" } }, ");
+	}
 	file.printf("Action = \"%s\", ", log.Action.c_str());
+	if (log.BeforeIncrement) {
+		file.printf("CyclePhase = \"PreIncrement\", ");
+	}
 	file.printf("Flush = %d, ", log.Flush);
 	if (log.Pos.x != -1 || log.Pos.y != -1) {
 		file.printf("PosX = %d, PosY = %d, ", log.Pos.x, log.Pos.y);
@@ -251,7 +296,7 @@ static void PrintLogCommand(const LogEntry &log, CFile &file)
 	if (log.Num != -1) {
 		file.printf("Num = %d, ", log.Num);
 	}
-	file.printf("SyncRandSeed = %d } )\n", (signed)log.SyncRandSeed);
+	file.printf("SyncRandSeed = %d } )\n", (signed) log.SyncRandSeed);
 }
 
 /**
@@ -272,23 +317,27 @@ static void SaveFullLog(CFile &file)
 	file.printf("  Map = \"%s\",\n", CurrentReplay->Map.c_str());
 	file.printf("  MapPath = \"%s\",\n", CurrentReplay->MapPath.c_str());
 	file.printf("  MapId = %u,\n", CurrentReplay->MapId);
+	file.printf("  CommandCyclePhase = \"%s\",\n",
+	            CurrentReplay->PostIncrementCommands ? "PostIncrement" : "PreIncrement");
 	file.printf("  LocalPlayer = %d,\n", CurrentReplay->LocalPlayer);
 	file.printf("  Players = {\n");
 	for (int i = 0; i < PlayerMax; ++i) {
 		file.printf("\t{ Name = \"%s\", ", CurrentReplay->PlayerNames[i].c_str());
-		CurrentReplay->ReplaySettings.Presets[i].Save([&] (std::string field) {
-			file.printf("%s, ", field.c_str());
-		});
+		CurrentReplay->ReplaySettings.Presets[i].Save(
+			[&](std::string field) { file.printf("%s, ", field.c_str()); });
 		file.printf("}%s", i != PlayerMax - 1 ? ",\n" : "\n");
 	}
 	file.printf("  },\n");
-	CurrentReplay->ReplaySettings.Save([&] (std::string field) {
-		file.printf("  %s,\n", field.c_str());
-	}, false);
+	CurrentReplay->ReplaySettings.Save(
+		[&](std::string field) { file.printf("  %s,\n", field.c_str()); }, false);
 	file.printf("  Engine = { %d, %d, %d },\n",
-				CurrentReplay->Engine[0], CurrentReplay->Engine[1], CurrentReplay->Engine[2]);
+	            CurrentReplay->Engine[0],
+	            CurrentReplay->Engine[1],
+	            CurrentReplay->Engine[2]);
 	file.printf("  Network = { %d, %d, %d }\n",
-				CurrentReplay->Network[0], CurrentReplay->Network[1], CurrentReplay->Network[2]);
+	            CurrentReplay->Network[0],
+	            CurrentReplay->Network[1],
+	            CurrentReplay->Network[2]);
 	file.printf("} )\n");
 	for (const auto &command : CurrentReplay->Commands) {
 		PrintLogCommand(command, file);
@@ -301,7 +350,7 @@ static void SaveFullLog(CFile &file)
 **  @param log   Pointer the replay log entry to be added
 **  @param dest  The file to output to
 */
-static void AppendLog(LogEntry&& log, CFile &file)
+static void AppendLog(LogEntry &&log, CFile &file)
 {
 	PrintLogCommand(log, file);
 	file.flush();
@@ -388,6 +437,7 @@ void CommandLog(const char *action,
 	log.UnitIdent = (unit ? unit->Type->Ident : "");
 
 	log.Action = action;
+	log.BeforeIncrement = CurrentReplay->PostIncrementCommands && log.Action == "input";
 	log.Flush = flush;
 
 	//
@@ -417,6 +467,134 @@ void CommandLog(const char *action,
 	AppendLog(std::move(log), *LogFile);
 }
 
+void CommandLogAiBatch(const AiCommandBatch &batch)
+{
+	if (CommandLogDisabled || batch.commands.empty()
+	    || batch.commands.size() > AiCommandBatch::MaxCommands) {
+		return;
+	}
+	// Use the same lazy log header and file as ordinary commands.
+	CommandLog(nullptr, nullptr, EFlushMode::Off, -1, -1, nullptr, nullptr, -1);
+	if (!LogFile || !CurrentReplay) {
+		return;
+	}
+
+	LogEntry log;
+	log.GameCycle = GameCycle;
+	log.UnitNumber = -1;
+	log.Pos = {-1, -1};
+	log.DestUnitNumber = -1;
+	log.Num = -1;
+	log.Action = "ai-command-batch";
+	log.AiBatch = batch;
+	log.SyncRandSeed = SyncRandSeed;
+	AppendLog(std::move(log), *LogFile);
+}
+
+static uint32_t ReplayUnsignedField(lua_State *l, int table, const char *name, uint32_t maximum)
+{
+	lua_getfield(l, table, name);
+	const double value = lua_tonumber(l, -1);
+	if (lua_type(l, -1) != LUA_TNUMBER || !std::isfinite(value) || value < 0 || value > maximum
+	    || std::floor(value) != value) {
+		LuaError(l, "Invalid AI replay batch field: %s", name);
+	}
+	lua_pop(l, 1);
+	return static_cast<uint32_t>(value);
+}
+
+static void
+ReplayCheckFields(lua_State *l, int table, std::initializer_list<std::string_view> names)
+{
+	size_t count = 0;
+	lua_pushnil(l);
+	while (lua_next(l, table)) {
+		if (lua_type(l, -2) != LUA_TSTRING) {
+			LuaError(l, "Unexpected AI replay batch field");
+		}
+		const std::string_view name = LuaToString(l, -2);
+		if (std::find(names.begin(), names.end(), name) == names.end()) {
+			LuaError(l, "Unexpected AI replay batch field: %s", name.data());
+		}
+		++count;
+		lua_pop(l, 1);
+	}
+	if (count != names.size()) {
+		LuaError(l, "Incomplete AI replay batch");
+	}
+}
+
+static AiCommandBatch ParseReplayAiBatch(lua_State *l, int table)
+{
+	if (!lua_istable(l, table)) {
+		LuaError(l, "Invalid AI replay batch");
+	}
+	ReplayCheckFields(l, table, {"Player", "Sequence", "Commands"});
+	AiCommandBatch batch;
+	batch.player = ReplayUnsignedField(l, table, "Player", PlayerMax - 1);
+	batch.sequence =
+		ReplayUnsignedField(l, table, "Sequence", std::numeric_limits<uint32_t>::max());
+
+	lua_getfield(l, table, "Commands");
+	const int commands = lua_gettop(l);
+	if (!lua_istable(l, commands)) {
+		LuaError(l, "Invalid AI replay commands");
+	}
+	const size_t count = lua_rawlen(l, commands);
+	if (!count || count > AiCommandBatch::MaxCommands) {
+		LuaError(l, "AI replay batch exceeds command limit");
+	}
+	size_t entries = 0;
+	lua_pushnil(l);
+	while (lua_next(l, commands)) {
+		if (lua_type(l, -2) != LUA_TNUMBER) {
+			LuaError(l, "Invalid AI replay command index");
+		}
+		const double index = lua_tonumber(l, -2);
+		if (index < 1 || index > count || std::floor(index) != index || ++entries > count) {
+			LuaError(l, "Invalid AI replay command index");
+		}
+		lua_pop(l, 1);
+	}
+	batch.commands.reserve(count);
+	for (size_t i = 1; i <= count; ++i) {
+		lua_rawgeti(l, commands, i);
+		const int primitive = lua_gettop(l);
+		if (!lua_istable(l, primitive)) {
+			LuaError(l, "Invalid AI replay command");
+		}
+		ReplayCheckFields(l, primitive, {"Verb", "Actor", "X", "Y", "Target"});
+		lua_getfield(l, primitive, "Verb");
+		if (lua_type(l, -1) != LUA_TSTRING) {
+			LuaError(l, "Invalid AI replay command verb");
+		}
+		const std::string_view verb = LuaToString(l, -1);
+		AiCommandPrimitive command;
+		bool found = false;
+		for (size_t j = 0; j < sizeof(AiVerbNames) / sizeof(*AiVerbNames); ++j) {
+			if (verb == AiVerbNames[j]) {
+				command.verb = static_cast<AiCommandVerb>(j);
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			LuaError(l, "Unknown AI replay command verb: %s", verb.data());
+		}
+		lua_pop(l, 1);
+		command.actor =
+			ReplayUnsignedField(l, primitive, "Actor", std::numeric_limits<uint16_t>::max());
+		command.x = ReplayUnsignedField(l, primitive, "X", std::numeric_limits<uint16_t>::max());
+		command.y = ReplayUnsignedField(l, primitive, "Y", std::numeric_limits<uint16_t>::max());
+		command.target =
+			ReplayUnsignedField(l, primitive, "Target", std::numeric_limits<uint16_t>::max());
+		batch.commands.push_back(command);
+		lua_pop(l, 1);
+	}
+	lua_pop(l, 1);
+	return batch;
+}
+
 /**
 ** Parse log
 */
@@ -434,6 +612,8 @@ static int CclLog(lua_State *l)
 	log.Pos = {-1, -1};
 	log.DestUnitNumber = -1;
 	log.Num = -1;
+	bool hasAiBatch = false;
+	bool hasCyclePhase = false;
 
 	lua_pushnil(l);
 	while (lua_next(l, 1)) {
@@ -460,10 +640,29 @@ static int CclLog(lua_State *l)
 			log.Num = LuaToNumber(l, -1);
 		} else if (value == "SyncRandSeed") {
 			log.SyncRandSeed = lua_tointeger(l, -1);
+		} else if (value == "CyclePhase") {
+			const std::string_view phase = LuaToString(l, -1);
+			if (phase != "PreIncrement" && phase != "PostIncrement") {
+				LuaError(l, "Unsupported replay command phase: %s", phase.data());
+			}
+			log.BeforeIncrement = phase == "PreIncrement";
+			hasCyclePhase = true;
+		} else if (value == "AiBatch") {
+			log.AiBatch = ParseReplayAiBatch(l, lua_gettop(l));
+			hasAiBatch = true;
 		} else {
 			LuaError(l, "Unsupported key: %s", value.data());
 		}
 		lua_pop(l, 1);
+	}
+	if (hasAiBatch != (log.Action == "ai-command-batch")) {
+		LuaError(l, "AI replay batch must have matching action and payload");
+	}
+	if (hasAiBatch && !CurrentReplay->PostIncrementCommands) {
+		LuaError(l, "AI replay batch requires PostIncrement command phase");
+	}
+	if (hasCyclePhase && !CurrentReplay->PostIncrementCommands) {
+		LuaError(l, "Per-command phase requires PostIncrement replay metadata");
 	}
 	CurrentReplay->Commands.push_back(std::move(log));
 	return 0;
@@ -528,7 +727,8 @@ static int CclReplayLog(lua_State *l)
 					} else if (value == "Team") {
 						replay->ReplaySettings.Presets[j].Team = LuaToNumber(l, -1);
 					} else if (value == "Type") {
-						replay->ReplaySettings.Presets[j].Type = static_cast<PlayerTypes>(LuaToNumber(l, -1));
+						replay->ReplaySettings.Presets[j].Type =
+							static_cast<PlayerTypes>(LuaToNumber(l, -1));
 					} else {
 						LuaError(l, "Unsupported key: %s", value.data());
 					}
@@ -550,6 +750,12 @@ static int CclReplayLog(lua_State *l)
 			replay->Network[0] = LuaToNumber(l, -1, 1);
 			replay->Network[1] = LuaToNumber(l, -1, 2);
 			replay->Network[2] = LuaToNumber(l, -1, 3);
+		} else if (value == "CommandCyclePhase") {
+			const std::string_view phase = LuaToString(l, -1);
+			if (phase != "PreIncrement" && phase != "PostIncrement") {
+				LuaError(l, "Unsupported replay command cycle phase: %s", phase.data());
+			}
+			replay->PostIncrementCommands = phase == "PostIncrement";
 		} else if (value == "Type" || value == "Race") {
 			WarnLegacyReplayField(value);
 			// Legacy replay metadata, superseded by per-player setup fields.
@@ -566,7 +772,8 @@ static int CclReplayLog(lua_State *l)
 			WarnLegacyReplayField(value);
 			replay->ReplaySettings.Inside = LuaToBoolean(l, -1);
 		} else {
-			if (!replay->ReplaySettings.SetField({value.data(), value.size()}, LuaToNumber(l, -1))) {
+			if (!replay->ReplaySettings.SetField({value.data(), value.size()},
+			                                     LuaToNumber(l, -1))) {
 				LuaError(l, "Unsupported key: %s", value.data());
 			}
 		}
@@ -671,14 +878,16 @@ static void DoNextReplay()
 	}
 
 	const int unitSlot = ReplayStep.UnitNumber;
-	const auto& action = ReplayStep.Action;
+	const auto &action = ReplayStep.Action;
 	const EFlushMode flush = ReplayStep.Flush;
 	const Vec2i pos(ReplayStep.Pos);
 	const int arg1 = ReplayStep.Pos.x;
 	const int arg2 = ReplayStep.Pos.y;
 	CUnit *unit = unitSlot != -1 ? &UnitManager->GetSlotUnit(unitSlot) : nullptr;
-	CUnit *dunit = (ReplayStep.DestUnitNumber != -1 ? &UnitManager->GetSlotUnit(ReplayStep.DestUnitNumber) : nullptr);
-	const auto& val = ReplayStep.Value;
+	CUnit *dunit =
+		(ReplayStep.DestUnitNumber != -1 ? &UnitManager->GetSlotUnit(ReplayStep.DestUnitNumber)
+	                                     : nullptr);
+	const auto &val = ReplayStep.Value;
 	const int num = ReplayStep.Num;
 
 	Assert(unitSlot == -1 || ReplayStep.UnitIdent == unit->Type->Ident);
@@ -705,7 +914,15 @@ static void DoNextReplay()
 #endif
 	}
 
-	if (action == "stop") {
+	if (action == "ai-command-batch") {
+		if (!ExecuteAiCommandBatch(ReplayStep.AiBatch)) {
+			ThisPlayer->Notify(_("Invalid AI replay batch (%lu) !"), GameCycle);
+			ErrorPrint("Invalid AI replay batch at cycle %lu\n", GameCycle);
+			ReplayIndex = std::nullopt;
+			NextLogCycle = ~0UL;
+			return;
+		}
+	} else if (action == "stop") {
 		SendCommandStopUnit(*unit);
 	} else if (action == "stand-ground") {
 		SendCommandStandGround(*unit, flush);
@@ -793,7 +1010,7 @@ static void DoNextReplay()
 /**
 **  Replay user commands from log each cycle
 */
-static void ReplayEachCycle()
+static void ReplayEachCycle(bool beforeIncrement)
 {
 	if (!CurrentReplay) {
 		return;
@@ -821,6 +1038,11 @@ static void ReplayEachCycle()
 	}
 
 	do {
+		const auto &step = CurrentReplay->Commands[*ReplayIndex];
+		if (ReplayGameType == EReplayType::SinglePlayer
+		    && (!CurrentReplay->PostIncrementCommands || step.BeforeIncrement) != beforeIncrement) {
+			break;
+		}
 		DoNextReplay();
 	} while (ReplayIndex && (NextLogCycle == ~0UL || NextLogCycle == GameCycle));
 
@@ -836,7 +1058,15 @@ static void ReplayEachCycle()
 void SinglePlayerReplayEachCycle()
 {
 	if (ReplayGameType == EReplayType::SinglePlayer) {
-		ReplayEachCycle();
+		ReplayEachCycle(true);
+	}
+}
+
+void SinglePlayerReplayAfterIncrement()
+{
+	if (ReplayGameType == EReplayType::SinglePlayer && CurrentReplay
+	    && CurrentReplay->PostIncrementCommands) {
+		ReplayEachCycle(false);
 	}
 }
 
@@ -846,7 +1076,7 @@ void SinglePlayerReplayEachCycle()
 void MultiPlayerReplayEachCycle()
 {
 	if (ReplayGameType == EReplayType::MultiPlayer) {
-		ReplayEachCycle();
+		ReplayEachCycle(false);
 	}
 }
 
