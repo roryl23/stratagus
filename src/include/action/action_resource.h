@@ -48,7 +48,10 @@ public:
 
 	~COrder_Resource();
 
-	std::unique_ptr<COrder> Clone() const override { return std::make_unique<COrder_Resource>(*this); }
+	std::unique_ptr<COrder> Clone() const override
+	{
+		return std::make_unique<COrder_Resource>(*this);
+	}
 
 	bool IsValid() const override;
 
@@ -63,10 +66,12 @@ public:
 	const Vec2i GetGoalPos() const override;
 
 	int GetCurrentResource() const { return CurrentResource; }
+	int GetResourcePhase() const { return State; }
 	Vec2i GetHarvestLocation() const;
 	bool IsGatheringStarted() const;
 	bool IsGatheringFinished() const;
 	bool IsGatheringWaiting() const;
+
 private:
 	int MoveToResource_Terrain(CUnit &unit);
 	int MoveToResource_Unit(CUnit &unit);
@@ -82,16 +87,18 @@ private:
 	void ResourceGiveUp(CUnit &unit);
 	bool FindAnotherResource(CUnit &unit);
 	bool ActionResourceInit(CUnit &unit);
+
 private:
 	CUnitPtr worker = nullptr; /// unit that own this order.
 	unsigned char CurrentResource = 0;
-	struct {
+	struct
+	{
 		Vec2i Pos{-1, -1}; /// position for terrain resource.
 		CUnitPtr Mine = nullptr;
 	} Resource;
 	CUnitPtr Depot = nullptr;
 	int State = 0;
-	int TimeToHarvest = 0;       /// how much time until we harvest some more.
+	int TimeToHarvest = 0; /// how much time until we harvest some more.
 	bool DoneHarvesting = false; /// Harvesting done, wait for action to break.
 	int Range = 0;
 #if 1

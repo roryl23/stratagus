@@ -33,6 +33,7 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
+#include "action/action_resource.h"
 #include "actions.h"
 #include "animation.h"
 #include "commands.h"
@@ -1344,6 +1345,16 @@ static int CclGetUnitVariable(lua_State *l)
 		return 1;
 	} else if (value == "Idle") {
 		lua_pushboolean(l, unit->IsIdle());
+		return 1;
+	} else if (value == "CurrentAction") {
+		lua_pushnumber(l, unit->Orders.empty() ? 0 : static_cast<int>(unit->CurrentAction()));
+		return 1;
+	} else if (value == "ResourcePhase") {
+		lua_pushnumber(
+			l,
+			!unit->Orders.empty() && unit->CurrentAction() == UnitAction::Resource
+				? static_cast<const COrder_Resource &>(*unit->CurrentOrder()).GetResourcePhase()
+				: 0);
 		return 1;
 	} else if (value == "Gathering") {
 		lua_pushboolean(l, unit->CurrentAction() == UnitAction::Resource);
