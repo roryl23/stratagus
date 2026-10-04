@@ -2351,6 +2351,9 @@ namespace
 constexpr auto AiProcessorReconnectDelay = std::chrono::milliseconds(1000);
 constexpr auto AiProcessorConnectTimeout = std::chrono::seconds(10);
 constexpr auto AiProcessorResponseTimeout = std::chrono::seconds(60);
+// Sync training/evaluation can wait for PackageCompiler startup and model updates,
+// but a missing server must not stall the entire match indefinitely.
+constexpr auto AiProcessorStepTimeout = std::chrono::seconds(120);
 constexpr size_t AiProcessorHeaderWords = 22;
 constexpr size_t AiProcessorEntityWords = 14;
 constexpr size_t AiProcessorCandidateWords = 12;
@@ -2929,8 +2932,9 @@ AiProcessorSynchronousProgress(AiProcessorConnection &connection,
 /**
  * AiProcessorStep is the synchronous training/evaluation adapter over the
  * same non-blocking codec and connection, retrying an identical sequence on
- * disconnect (Julia de-duplicates that sequence). It returns the one-based
- * selection and its original sequence.
+ * disconnect (Julia de-duplicates that sequence) until the overall deadline.
+ * It returns the one-based selection and its original sequence, or raises a
+ * Lua error naming the server when it times out.
  */
 static int CclAiProcessorStep(lua_State *l)
 {
@@ -2946,9 +2950,11 @@ static int CclAiProcessorStep(lua_State *l)
 		LuaError(l, "AI processor retry must use the original frame");
 	}
 	AiProcessorStart(*connection, std::move(frame), false);
-	for (;;) {
+	const auto deadline = std::chrono::steady_clock::now() + AiProcessorStepTimeout;
+	while (std::chrono::steady_clock::now() < deadline) {
 		uint32_t selected = 0;
-		const AiProcessorResult result = AiProcessorSynchronousProgress(*connection, selected);
+		const AiProcessorResult result =
+			AiProcessorSynchronousProgress(*connection, selected, deadline);
 		if (result == AiProcessorResult::Ready) {
 			const uint32_t sequence = connection->sequence;
 			++connection->sequence;
@@ -2958,6 +2964,14 @@ static int CclAiProcessorStep(lua_State *l)
 			return 2;
 		}
 	}
+	AiProcessorClose(*connection);
+	AiProcessorClear(*connection);
+	LuaError(l,
+	         "AiProcessorStep timed out after %d seconds waiting for AI server at %s:%d",
+	         static_cast<int>(AiProcessorStepTimeout.count()),
+	         connection->host.c_str(),
+	         connection->port);
+	return 0;
 }
 
 /**
