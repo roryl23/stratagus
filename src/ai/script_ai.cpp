@@ -57,9 +57,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <new>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <tuple>
@@ -2053,12 +2055,11 @@ static int CclAiActionCatalog(lua_State *l)
 			actors.push_back(unit->Type);
 		}
 	}
-	std::sort(actors.begin(), actors.end(), [](const CUnitType *a, const CUnitType *b) {
-		return a->Ident < b->Ident;
-	});
+	const std::less<const CUnitType *> actorOrder;
+	std::sort(actors.begin(), actors.end(), actorOrder);
 	actors.erase(std::unique(actors.begin(), actors.end()), actors.end());
 
-	using Entry = std::tuple<std::string, std::string, std::string>;
+	using Entry = std::tuple<std::string_view, std::string_view, std::string_view>;
 	std::vector<Entry> entries;
 	const auto &unitTypes = getUnitTypes();
 	auto addUnitActions = [&](const std::vector<std::vector<CUnitType *>> &helpers,
@@ -2072,7 +2073,8 @@ static int CclAiActionCatalog(lua_State *l)
 				continue;
 			}
 			for (const CUnitType *producer : helpers[target]) {
-				if (producer && std::find(actors.begin(), actors.end(), producer) != actors.end()) {
+				if (producer
+				    && std::binary_search(actors.begin(), actors.end(), producer, actorOrder)) {
 					entries.emplace_back(producer->Ident, verb, unitTypes[target]->Ident);
 				}
 			}
@@ -2089,7 +2091,8 @@ static int CclAiActionCatalog(lua_State *l)
 				continue;
 			}
 			for (const CUnitType *producer : helpers[target]) {
-				if (producer && std::find(actors.begin(), actors.end(), producer) != actors.end()) {
+				if (producer
+				    && std::binary_search(actors.begin(), actors.end(), producer, actorOrder)) {
 					entries.emplace_back(producer->Ident, "research", AllUpgrades[target]->Ident);
 				}
 			}
