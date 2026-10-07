@@ -184,6 +184,111 @@ def test_war1gus_campaign_maps(
 
 
 @pytest.mark.gui
+@pytest.mark.slow
+@pytest.mark.parametrize("wall_only", (True, False), ids=("wall-only", "non-wall-survives"))
+def test_war1gus_rollout_eliminates_wall_only_player(
+    stratagus_player: dict,
+    extracted_war1gus_data: Path,
+    gui_env,
+    tmp_path: Path,
+    wall_only: bool,
+):
+    """The real engine, rollout, and AI reward agree on wall-only elimination."""
+    write_war1gus_preferences(tmp_path)
+    map_path = tmp_path / "wall-survival.smp"
+    map_path.write_text(
+        'DefinePlayerTypes("person", "computer")\n'
+        'PresentMap("Wall-only survival", 2, 32, 32, 1)\n'
+    )
+    (tmp_path / "wall-survival.sms").write_text(f"""
+for i = 0, 1 do
+  SetStartView(i, 15, 15)
+  SetPlayerData(i, "Resources", "gold", 1000)
+  SetPlayerData(i, "Resources", "wood", 1000)
+  SetPlayerData(i, "RaceName", i == 0 and "human" or "orc")
+end
+SetAiType(1, "ai-passive")
+LoadTileModels("scripts/tilesets/forest.lua")
+for y = 0, 31 do
+  for x = 0, 31 do SetTile(80, x, y, 0) end
+end
+if MapUnitsInit ~= nil then MapUnitsInit() end
+CreateUnit("unit-footman", 0, {{25, 25}})
+CreateUnit("unit-wall", 1, {{5, 5}})
+if not {"true" if wall_only else "false"} then
+  CreateUnit("unit-orc-farm", 1, {{8, 8}})
+end
+SetDiplomacy(0, "enemy", 1)
+SetDiplomacy(1, "enemy", 0)
+local function hasNonWallUnits(player)
+  for _, unit in ipairs(GetUnits(player)) do
+    if not GetUnitBoolFlag(unit, "Wall") then return true end
+  end
+  return false
+end
+local state, _, reward = War1gusAiFinalState(1)
+print("WALL_SURVIVAL train_units=" .. GetPlayerData(1, "TotalNumUnits")
+  .. " train_alive=" .. tostring(hasNonWallUnits(1))
+  .. " opponent_alive=" .. tostring(hasNonWallUnits(0))
+  .. " opponent_count=" .. GetNumOpponents(0)
+  .. " train_opponent_count=" .. GetNumOpponents(1)
+  .. " terminal_reward=" .. reward.terminal
+  .. " state_terminal_word=" .. state[22])
+io.stdout:flush()
+""")
+    repo_root = Path(__file__).resolve().parents[2]
+    env = dict(gui_env)
+    env.update({
+        "STRATAGUS_UNBUFFERED_STDIO": "1",
+        "WAR1GUS_ROLLOUT_MAP": str(map_path),
+        "WAR1GUS_ROLLOUT_TRAIN_PLAYER": "1",
+        "WAR1GUS_ROLLOUT_TIMEOUT_CYCLES": "30",
+        "WAR1GUS_ROLLOUT_MATCH_ID": "pytest-wall-survival",
+        "WAR1GUS_ROLLOUT_MODE": "evaluate",
+    })
+    stdout, stderr = tmp_path / "rollout.stdout", tmp_path / "rollout.stderr"
+    cmd = _participant_cmd(
+        stratagus_player,
+        ["-b", "-r", "-d", str(extracted_war1gus_data), "-u", str(tmp_path),
+         "-c", str(repo_root / "scripts/ai/war1gus/rollout.lua")],
+    )
+    process = _launch(cmd, cwd=repo_root, env=env, stdout=stdout, stderr=stderr)
+    try:
+        process.wait(timeout=60)
+    finally:
+        terminate_process(process)
+
+    logs = _combined_logs((stdout, stderr))
+    assert process.returncode == 0, logs
+    observation = re.search(
+        r"WALL_SURVIVAL train_units=(\d+) train_alive=(true|false) "
+        r"opponent_alive=(true|false) opponent_count=(\d+) "
+        r"train_opponent_count=(\d+) terminal_reward=(-?\d+) "
+        r"state_terminal_word=(\d+)",
+        logs,
+    )
+    assert observation is not None, logs
+    units, train_alive, opponent_alive, opponents, train_opponents, reward, word = observation.groups()
+    assert int(units) >= 1, logs
+    assert opponent_alive == "true" and int(train_opponents) == 1, logs
+    assert train_alive == str(not wall_only).lower(), logs
+    assert int(opponents) == (0 if wall_only else 1), logs
+    assert int(reward) == (-1000 if wall_only else 0), logs
+    assert int(word) == (4294966296 if wall_only else 0), logs
+    terminals = [
+        json.loads(line) for line in _read(stdout).splitlines()
+        if line.startswith('{"type":"rollout_terminal"')
+    ]
+    assert len(terminals) == 1, logs
+    assert terminals[0]["trainable_player"] == 1, logs
+    assert terminals[0]["outcome"] == ("loss" if wall_only else "timeout"), logs
+    if wall_only:
+        assert terminals[0]["cycles"] < 30, logs
+    else:
+        assert terminals[0]["cycles"] >= 30, logs
+
+
+@pytest.mark.gui
 @pytest.mark.cross
 @pytest.mark.slow
 def test_war1gus_idle_footman_autoattacks_without_policy_orders(
