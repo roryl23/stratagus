@@ -33,20 +33,20 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
-#include "player.h"
-
 #include "actions.h"
 #include "ai.h"
 #include "commands.h"
 #include "map.h"
+#include "player.h"
 #include "script.h"
-#include "unittype.h"
+#include "stratagus.h"
 #include "unit.h"
 #include "unit_find.h"
+#include "unittype.h"
 #include "upgrade.h"
 #include "video.h"
+
+#include <charconv>
 
 /*----------------------------------------------------------------------------
 --  Variables
@@ -276,6 +276,13 @@ void CPlayer::Load(lua_State *l)
 			this->TotalRazings = LuaToNumber(l, j + 1);
 		} else if (value == "total-kills") {
 			this->TotalKills = LuaToNumber(l, j + 1);
+		} else if (value == "total-enemy-asset-damage") {
+			const std::string_view amount = LuaToString(l, j + 1);
+			const auto result = std::from_chars(
+				amount.data(), amount.data() + amount.size(), this->TotalEnemyAssetDamage);
+			if (result.ec != std::errc{} || result.ptr != amount.data() + amount.size()) {
+				LuaError(l, "invalid total-enemy-asset-damage");
+			}
 		} else if (value == "lost-main-facility-timer") {
 			this->LostMainFacilityTimer = LuaToNumber(l, j + 1);
 		} else if (value == "total-resources") {
@@ -367,15 +374,15 @@ void CPlayer::Load(lua_State *l)
 */
 static int CclChangeUnitsOwner(lua_State *l)
 {
-    int args = lua_gettop(l);
-    if (args != 4 && args != 5) {
-        LuaError(l, "incorrect argument count, need 4 or 5 args");
-    }
+	int args = lua_gettop(l);
+	if (args != 4 && args != 5) {
+		LuaError(l, "incorrect argument count, need 4 or 5 args");
+	}
 
-    Vec2i pos1;
-    Vec2i pos2;
-    CclGetPos(l, &pos1, 1);
-    CclGetPos(l, &pos2, 2);
+	Vec2i pos1;
+	Vec2i pos2;
+	CclGetPos(l, &pos1, 1);
+	CclGetPos(l, &pos2, 2);
 	if (pos1.x > pos2.x) {
 		std::swap(pos1.x, pos2.x);
 	}
@@ -383,20 +390,20 @@ static int CclChangeUnitsOwner(lua_State *l)
 		std::swap(pos1.y, pos2.y);
 	}
 
-    const int oldp = LuaToNumber(l, 3);
-    const int newp = LuaToNumber(l, 4);
-    std::vector<CUnit *> table;
+	const int oldp = LuaToNumber(l, 3);
+	const int newp = LuaToNumber(l, 4);
+	std::vector<CUnit *> table;
 	// Change all units
-    if (args == 4) {
-        table = Select(pos1, pos2, HasSamePlayerAs(Players[oldp]));
-    } else { //Change only specific units by the type.
-        CUnitType &type = UnitTypeByIdent(LuaToString(l, 5));
-        table = Select(pos1, pos2, HasSamePlayerAndTypeAs(Players[oldp], type));
-    }
-    for (auto unit : table) {
-        unit->ChangeOwner(Players[newp]);
-    }
-    return 0;
+	if (args == 4) {
+		table = Select(pos1, pos2, HasSamePlayerAs(Players[oldp]));
+	} else { //Change only specific units by the type.
+		CUnitType &type = UnitTypeByIdent(LuaToString(l, 5));
+		table = Select(pos1, pos2, HasSamePlayerAndTypeAs(Players[oldp], type));
+	}
+	for (auto unit : table) {
+		unit->ChangeOwner(Players[newp]);
+	}
+	return 0;
 }
 
 /**
@@ -478,9 +485,13 @@ static int CclGiveUnitsToPlayer(lua_State *l)
 			if (any) {
 				table = Select(pos1, pos2, HasSamePlayerAs(Players[oldp]));
 			} else if (onlyUnits) {
-				table = Select(pos1, pos2, AndPredicate(HasSamePlayerAs(Players[oldp]), NotPredicate(IsBuildingType())));
+				table = Select(
+					pos1,
+					pos2,
+					AndPredicate(HasSamePlayerAs(Players[oldp]), NotPredicate(IsBuildingType())));
 			} else if (onlyBuildings) {
-				table = Select(pos1, pos2, AndPredicate(HasSamePlayerAs(Players[oldp]), IsBuildingType()));
+				table = Select(
+					pos1, pos2, AndPredicate(HasSamePlayerAs(Players[oldp]), IsBuildingType()));
 			} else {
 				table = Select(pos1, pos2, HasSamePlayerAndTypeAs(Players[oldp], *type));
 			}
@@ -492,7 +503,8 @@ static int CclGiveUnitsToPlayer(lua_State *l)
 		} else {
 			std::vector<CUnit *> table;
 			for (CUnit *unit : Players[oldp].GetUnits()) {
-				if (any || (onlyUnits && !unit->Type->Building) || (onlyBuildings && unit->Type->Building) || (type == unit->Type)) {
+				if (any || (onlyUnits && !unit->Type->Building)
+				    || (onlyBuildings && unit->Type->Building) || (type == unit->Type)) {
 					table.push_back(unit);
 					if (--cnt > 0) {
 						break;
@@ -896,7 +908,9 @@ static int CclDefinePlayerColors(lua_State *l)
 		}
 		const int numcolors = lua_rawlen(l, -1);
 		if (numcolors != PlayerColorIndexCount) {
-			LuaError(l, "You should use %d colors (See DefinePlayerColorIndex())", PlayerColorIndexCount);
+			LuaError(l,
+			         "You should use %d colors (See DefinePlayerColorIndex())",
+			         PlayerColorIndexCount);
 		}
 		std::vector<CColor> newColors;
 		for (int j = 0; j < numcolors; ++j) {
@@ -918,7 +932,8 @@ static int CclDefinePlayerColors(lua_State *l)
 			neutralColors.push_back(neutralColor);
 		}
 		PlayerColorsRGB.push_back(neutralColors);
-		PlayerColorsSDL.push_back(std::vector<SDL_Color>(neutralColors.begin(), neutralColors.end()));
+		PlayerColorsSDL.push_back(
+			std::vector<SDL_Color>(neutralColors.begin(), neutralColors.end()));
 	}
 
 	return 0;
@@ -1065,6 +1080,9 @@ static int CclGetPlayerData(lua_State *l)
 		return 1;
 	} else if (data == "TotalKills") {
 		lua_pushnumber(l, p->TotalKills);
+		return 1;
+	} else if (data == "TotalEnemyAssetDamage") {
+		lua_pushnumber(l, static_cast<double>(p->TotalEnemyAssetDamage) / 1024.0);
 		return 1;
 	} else if (data == "SpeedResourcesHarvest") {
 		LuaCheckArgs(l, 3);

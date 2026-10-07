@@ -68,7 +68,10 @@
 #include "upgrade.h"
 #include "video.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 
 /*----------------------------------------------------------------------------
 -- Documentation
@@ -2822,6 +2825,30 @@ static void HitUnit_IncreaseScoreForKill(CUnit &attacker, CUnit &target)
 	attacker.Variable[KILL_INDEX].Enable = 1;
 }
 
+// Count only HP removed by this hit, not shield absorption or excess lethal damage.
+static void HitUnit_CreditEnemyAssetDamage(CUnit *attacker, const CUnit &target, int hpLost)
+{
+	if (!attacker || hpLost <= 0 || !attacker->IsEnemy(target)
+	    || target.Type->BoolFlag[WALL_INDEX].value) {
+		return;
+	}
+	const auto &stats = target.Type->MapDefaultStat;
+	const int64_t cost =
+		std::max<int64_t>(0, int64_t(stats.Costs[GoldCost]) + stats.Costs[WoodCost]);
+	if (!cost) {
+		return;
+	}
+	const uint64_t maxHp = static_cast<uint64_t>(std::max(1, target.Variable[HP_INDEX].Max));
+	const uint64_t product = static_cast<uint64_t>(cost) * static_cast<uint64_t>(hpLost);
+	const uint64_t whole = product / maxHp;
+	const uint64_t fraction = ((product % maxHp) * 1024) / maxHp;
+	const uint64_t credited = whole >= std::numeric_limits<uint64_t>::max() / 1024
+	                            ? std::numeric_limits<uint64_t>::max()
+	                            : whole * 1024 + fraction;
+	auto &total = attacker->Player->TotalEnemyAssetDamage;
+	total += std::min(credited, std::numeric_limits<uint64_t>::max() - total);
+}
+
 static void HitUnit_ApplyDamage(CUnit *attacker, CUnit &target, int damage)
 {
 	if (attacker && attacker->Variable[SHIELDPIERCING_INDEX].Value) {
@@ -3098,7 +3125,9 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 		}
 	}
 
+	const int hpBefore = target.Variable[HP_INDEX].Value;
 	if (HitUnit_IsUnitWillDie(attacker, target, damage)) { // unit is killed or destroyed
+		HitUnit_CreditEnemyAssetDamage(attacker, target, hpBefore);
 		if (attacker) {
 			//  Setting ai threshold counter to 0 so it can target other units
 			attacker->Threshold = 0;
@@ -3111,6 +3140,7 @@ void HitUnit(CUnit *attacker, CUnit &target, int damage, const Missile *missile)
 	}
 
 	HitUnit_ApplyDamage(attacker, target, damage);
+	HitUnit_CreditEnemyAssetDamage(attacker, target, hpBefore - target.Variable[HP_INDEX].Value);
 	HitUnit_BuildingCapture(attacker, target, damage);
 	HitUnit_ShowDamageMissile(target, damage);
 

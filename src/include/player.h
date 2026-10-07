@@ -36,17 +36,17 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include <optional>
-#include <set>
-#include <string>
-#include <vector>
-
 #include "../ai/ai_local.h"
 #include "color.h"
 #include "settings.h"
 #include "upgrade_structs.h"
 #include "vec2i.h"
 
+#include <cstdint>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
 
 class CGraphic;
 
@@ -79,11 +79,12 @@ constexpr char DEFAULT_ACTIVE_AI[] = "ai-active";
 --  Player type
 ----------------------------------------------------------------------------*/
 
-enum class EDiplomacy {
-	Allied,   /// Ally with opponent
-	Neutral,  /// Don't attack be neutral
-	Enemy,    /// Attack opponent
-	Crazy     /// Ally and attack opponent
+enum class EDiplomacy
+{
+	Allied, /// Ally with opponent
+	Neutral, /// Don't attack be neutral
+	Enemy, /// Attack opponent
+	Crazy /// Ally and attack opponent
 }; /// Diplomacy states for CommandDiplomacy
 
 std::optional<EDiplomacy> DiplomacyFromString(std::string_view);
@@ -99,13 +100,15 @@ enum class ECheckLimit
 	Ok = 1
 };
 
-
 ///  Player structure
 class CPlayer
 {
 	friend void CleanPlayers();
+
 public:
-	static inline RevealTypes RevelationFor { RevealTypes::cNoRevelation }; /// type of revelation (when player lost their last main facility)
+	static inline RevealTypes RevelationFor{
+		RevealTypes::
+			cNoRevelation}; /// type of revelation (when player lost their last main facility)
 
 public:
 	/// Check if revelation enabled
@@ -123,7 +126,6 @@ public:
 	}
 
 public:
-
 	/// Change player name
 	void SetName(const std::string &name);
 
@@ -181,9 +183,11 @@ public:
 	int HaveUnitTypeByIdent(std::string_view ident) const;
 
 	/// Notify player about a problem
-	void Notify(IntColor, const Vec2i &pos, const char *fmt, ...) const PRINTF_VAARG_ATTRIBUTE(4, 5); // Don't forget to count this
+	void Notify(IntColor, const Vec2i &pos, const char *fmt, ...) const
+		PRINTF_VAARG_ATTRIBUTE(4, 5); // Don't forget to count this
 	/// Notify player about a problem
-	void Notify(const char *fmt, ...) const PRINTF_VAARG_ATTRIBUTE(2, 3); // Don't forget to count this
+	void Notify(const char *fmt, ...) const
+		PRINTF_VAARG_ATTRIBUTE(2, 3); // Don't forget to count this
 
 	/**
 	**  Check if the player index is an enemy
@@ -230,75 +234,80 @@ public:
 	void SetRevealed(const bool revealed);
 
 public:
-	int Index = 0;      /// player as number
-	std::string Name;   /// name of non computer
+	int Index = 0; /// player as number
+	std::string Name; /// name of non computer
 
-	PlayerTypes Type;   /// type of player (human,computer,...)
-	int Race = 0;         /// race of player (orc,human,...)
+	PlayerTypes Type; /// type of player (human,computer,...)
+	int Race = 0; /// race of player (orc,human,...)
 	std::string AiName; /// AI for computer
 
 	// friend enemy detection
-	int Team = 0;          /// team of player
+	int Team = 0; /// team of player
 
 	Vec2i StartPos{-1, -1}; /// map tile start position
 
 	void SetStartView(const Vec2i &pos) { StartPos = pos; }
 
-	int Resources[MaxCosts]{};       /// resources in overall store
-	int MaxResources[MaxCosts]{};    /// max resources can be stored
+	int Resources[MaxCosts]{}; /// resources in overall store
+	int MaxResources[MaxCosts]{}; /// max resources can be stored
 	int StoredResources[MaxCosts]{}; /// resources in store buildings (can't exceed MaxResources)
-	int LastResources[MaxCosts]{};   /// last values for revenue
-	int Incomes[MaxCosts]{};         /// income of the resources
-	int Revenue[MaxCosts]{};         /// income rate of the resources
+	int LastResources[MaxCosts]{}; /// last values for revenue
+	int Incomes[MaxCosts]{}; /// income of the resources
+	int Revenue[MaxCosts]{}; /// income rate of the resources
 
 	int SpeedResourcesHarvest[MaxCosts]{}; /// speed factor for harvesting resources
-	int SpeedResourcesReturn[MaxCosts]{};  /// speed factor for returning resources
-	int SpeedBuild = 0;                  /// speed factor for building
-	int SpeedTrain = 0;                  /// speed factor for training
-	int SpeedUpgrade = 0;                /// speed factor for upgrading
-	int SpeedResearch = 0;               /// speed factor for researching
+	int SpeedResourcesReturn[MaxCosts]{}; /// speed factor for returning resources
+	int SpeedBuild = 0; /// speed factor for building
+	int SpeedTrain = 0; /// speed factor for training
+	int SpeedUpgrade = 0; /// speed factor for upgrading
+	int SpeedResearch = 0; /// speed factor for researching
 
 	// FIXME: shouldn't use the constant
 	int UnitTypesCount[UnitTypeMax]{}; /// total units of unit-type
-	int UnitTypesAiActiveCount [UnitTypeMax]{}; /// total units of unit-type that have their AI set to active
+	int UnitTypesAiActiveCount
+		[UnitTypeMax]{}; /// total units of unit-type that have their AI set to active
 
-	bool AiEnabled = false;        /// handle AI on local computer
+	bool AiEnabled = false; /// handle AI on local computer
 	std::unique_ptr<PlayerAi> Ai; /// Ai structure pointer
 
-	int NumBuildings = 0;   /// # buildings
-	int Supply = 0;         /// supply available/produced
-	int Demand = 0;         /// demand of player
+	int NumBuildings = 0; /// # buildings
+	int Supply = 0; /// supply available/produced
+	int Demand = 0; /// demand of player
 
-	int UnitLimit = 0;       /// # food units allowed
-	int BuildingLimit = 0;   /// # buildings allowed
-	int TotalUnitLimit = 0;  /// # total unit number allowed
+	int UnitLimit = 0; /// # food units allowed
+	int BuildingLimit = 0; /// # buildings allowed
+	int TotalUnitLimit = 0; /// # total unit number allowed
 
-	int Score = 0;           /// Points for killing ...
+	int Score = 0; /// Points for killing ...
 	int TotalUnits = 0;
 	int TotalBuildings = 0;
 	int TotalResources[MaxCosts]{};
 	int TotalRazings = 0;
-	int TotalKills = 0;      /// How many unit killed
+	int TotalKills = 0; /// How many unit killed
+	uint64_t TotalEnemyAssetDamage = 0; /// Enemy HP damage in 1/1024 of gold + wood cost
 
-	int LostMainFacilityTimer { 0 };/// The timer for when the player lost the last town hall
-									/// (to make the player's units be revealed)
+	int LostMainFacilityTimer{0}; /// The timer for when the player lost the last town hall
+	/// (to make the player's units be revealed)
 
-	IntColor Color;           /// color of units on minimap
+	IntColor Color; /// color of units on minimap
 
 	// Upgrades/Allows:
-	CAllow Allow;                 /// Allowed for player
+	CAllow Allow; /// Allowed for player
 	CUpgradeTimers UpgradeTimers; /// Timer for the upgrades
 
 private:
-	CUnitColors UnitColors;            /// Unit colors for new units
-	std::vector<CUnit *> Units;        /// units of this player
-	std::vector<CUnit *> FreeWorkers;  /// Container for free workers
-	unsigned int Enemy = 0;            /// enemy bit field for this player
-	unsigned int Allied = 0;           /// allied bit field for this player
-	std::set<uint8_t> HasVisionFrom;   /// set of player indexes that have shared their vision with this player
-	std::set<uint8_t> GaveVisionTo;    /// set of player indexes that this player has shared vision with
+	CUnitColors UnitColors; /// Unit colors for new units
+	std::vector<CUnit *> Units; /// units of this player
+	std::vector<CUnit *> FreeWorkers; /// Container for free workers
+	unsigned int Enemy = 0; /// enemy bit field for this player
+	unsigned int Allied = 0; /// allied bit field for this player
+	std::set<uint8_t>
+		HasVisionFrom; /// set of player indexes that have shared their vision with this player
+	std::set<uint8_t>
+		GaveVisionTo; /// set of player indexes that this player has shared vision with
 
-	bool isRevealed { false }; 	/// whether the player has been revealed (i.e. after losing the last Town Hall)
+	bool isRevealed{
+		false}; /// whether the player has been revealed (i.e. after losing the last Town Hall)
 
 private:
 	/// List of players revealed after losing their last Town Hall
@@ -318,25 +327,25 @@ public:
 	int GetRaceIndexByName(std::string_view raceName) const;
 
 public:
-	bool Visible[MAX_RACES]{};      /// race should be visible in pulldown
-	std::string Name[MAX_RACES];    /// race names
+	bool Visible[MAX_RACES]{}; /// race should be visible in pulldown
+	std::string Name[MAX_RACES]; /// race names
 	std::string Display[MAX_RACES]; /// text to display in pulldown
-	unsigned int Count = 0;         /// number of races
+	unsigned int Count = 0; /// number of races
 };
 
 /*----------------------------------------------------------------------------
 --  Variables
 ----------------------------------------------------------------------------*/
 
-extern int NumPlayers;             /// How many player slots used
-extern CPlayer Players[PlayerMax];  /// All players
-extern CPlayer *ThisPlayer;         /// Player on local computer
-extern bool NoRescueCheck;          /// Disable rescue check
+extern int NumPlayers; /// How many player slots used
+extern CPlayer Players[PlayerMax]; /// All players
+extern CPlayer *ThisPlayer; /// Player on local computer
+extern bool NoRescueCheck; /// Disable rescue check
 extern std::vector<std::vector<CColor>> PlayerColorsRGB; /// Player colors
 extern std::vector<std::vector<SDL_Color>> PlayerColorsSDL; /// Player colors
-extern std::vector<std::string> PlayerColorNames;  /// Player color names
+extern std::vector<std::string> PlayerColorNames; /// Player color names
 
-extern PlayerRace PlayerRaces;  /// Player races
+extern PlayerRace PlayerRaces; /// Player races
 
 /**
 **  Which indexes to replace with player color
@@ -358,7 +367,6 @@ extern void SavePlayers(CFile &file);
 /// Create a new player
 extern void CreatePlayer(PlayerTypes type);
 
-
 /// Initialize the computer opponent AI
 extern void PlayersInitAi();
 /// Called each game cycle for player handlers (AI)
@@ -374,14 +382,16 @@ extern void DebugPlayers();
 
 void FreePlayerColors();
 
-
 CPlayer *CclGetPlayer(lua_State *l);
 
 /// register ccl features
 extern void PlayerCclRegister();
 
 /// Allowed to select multiple units, maybe not mine
-inline bool CanSelectMultipleUnits(const CPlayer &player) { return &player == ThisPlayer || ThisPlayer->IsTeamed(player); }
+inline bool CanSelectMultipleUnits(const CPlayer &player)
+{
+	return &player == ThisPlayer || ThisPlayer->IsTeamed(player);
+}
 
 //@}
 

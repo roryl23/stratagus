@@ -322,3 +322,133 @@ end
     assert policy_hp < policy_initial, logs
     assert attackmove_initial > 0 and attackmove_hp < attackmove_initial, logs
     assert attackmove_x < 27, logs
+
+
+@pytest.mark.gui
+@pytest.mark.slow
+def test_war1gus_enemy_damage_reward_requires_player_attribution(
+    stratagus_player: dict,
+    extracted_war1gus_data: Path,
+    gui_env,
+    tmp_path: Path,
+):
+    """Another player's damage is not ours; our lethal hit credits remaining HP."""
+    write_war1gus_preferences(tmp_path)
+    map_path = tmp_path / "attributed.smp"
+    map_path.write_text(
+        'DefinePlayerTypes("person", "computer", "computer")\n'
+        'PresentMap("Damage reward attribution", 3, 32, 32, 1)\n'
+    )
+    (tmp_path / "attributed.sms").write_text("""
+local function log(stage, state, target)
+  print("DAMAGE_REWARD " .. stage
+    .. " progress=" .. state.enemyProgress
+    .. " hp=" .. GetUnitVariable(target, "HitPoints")
+    .. " kills=" .. GetPlayerData(0, "TotalKills")
+    .. " razings=" .. GetPlayerData(0, "TotalRazings")
+    .. " damage=" .. GetPlayerData(0, "TotalEnemyAssetDamage")
+    .. " cycle=" .. GameCycle)
+  io.stdout:flush()
+end
+for i = 0, 2 do
+  SetStartView(i, 15, 15)
+  SetPlayerData(i, "Resources", "gold", 1000)
+  SetPlayerData(i, "Resources", "wood", 1000)
+  SetPlayerData(i, "Resources", "lumber", 0)
+  SetPlayerData(i, "RaceName", i == 1 and "orc" or "human")
+end
+LoadTileModels("scripts/tilesets/forest.lua")
+for y = 0, 31 do
+  for x = 0, 31 do SetTile(80, x, y, 0) end
+end
+if MapUnitsInit ~= nil then MapUnitsInit() end
+local attackerA = CreateUnit("unit-footman", 0, {4, 4})
+local targetB = CreateUnit("unit-orc-farm", 1, {14, 14})
+local attackerC = CreateUnit("unit-footman", 2, {26, 26})
+local ownCycle
+AddTrigger(function() return GameCycle >= 1 end, function()
+  SetDiplomacy(0, "enemy", 1)
+  SetDiplomacy(1, "enemy", 0)
+  SetDiplomacy(2, "enemy", 1)
+  SetDiplomacy(1, "enemy", 2)
+  SetDiplomacy(0, "neutral", 2)
+  SetDiplomacy(2, "neutral", 0)
+  return false
+end)
+AddTrigger(function() return GameCycle >= 2 end, function()
+  assert(GetDiplomacy(0, 1) == "enemy")
+  local _, _, baseline = War1gusAiFinalState(0, "draw")
+  log("baseline", baseline, targetB)
+  DamageUnit(attackerC, targetB, 20)
+  local _, _, third = War1gusAiFinalState(0, "draw")
+  log("third", third, targetB)
+  SetDiplomacy(1, "neutral", 0)
+  return false
+end)
+AddTrigger(function() return GameCycle >= 3 and GetDiplomacy(1, 0) == "neutral" end, function()
+  -- A considers B an enemy even though B does not consider A an enemy.
+  assert(GetDiplomacy(0, 1) == "enemy")
+  assert(GetDiplomacy(1, 0) == "neutral")
+  DamageUnit(attackerA, targetB, 20)
+  local _, _, own = War1gusAiFinalState(0, "draw")
+  log("own", own, targetB)
+  ownCycle = GameCycle
+  SetDiplomacy(1, "enemy", 0)
+  return false
+end)
+AddTrigger(function() return ownCycle ~= nil and GameCycle > ownCycle and GetDiplomacy(1, 0) == "enemy" end, function()
+  assert(GetDiplomacy(1, 0) == "enemy")
+  DamageUnit(attackerA, targetB, 1000)
+  local _, _, lethal = War1gusAiFinalState(0, "draw")
+  log("lethal", lethal, targetB)
+  Exit(0)
+  return false
+end)
+""")
+    startup = tmp_path / "start.lua"
+    startup.write_text(f"""
+Load("scripts/stratagus.lua")
+SetTitleScreens({{}})
+CustomStartup = function()
+  InitGameSettings()
+  GameSettings.GameType = -1
+  RunMap({json.dumps(str(map_path))}, false)
+  Exit(0)
+end
+""")
+    test_env = dict(gui_env)
+    test_env["STRATAGUS_UNBUFFERED_STDIO"] = "1"
+    stdout = tmp_path / "damage.stdout"
+    stderr = tmp_path / "damage.stderr"
+    cmd = _participant_cmd(
+        stratagus_player,
+        ["-b", "-r", "-d", str(extracted_war1gus_data), "-u", str(tmp_path), "-c", str(startup)],
+    )
+    # Load the checked-out AI reward script; -d supplies proprietary assets only.
+    process = _launch(
+        cmd, cwd=Path(__file__).resolve().parents[2], env=test_env, stdout=stdout, stderr=stderr
+    )
+    try:
+        process.wait(timeout=60)
+    finally:
+        terminate_process(process)
+
+    logs = _combined_logs((stdout, stderr))
+    assert process.returncode == 0, logs
+    observations = re.findall(
+        r"DAMAGE_REWARD (baseline|third|own|lethal) progress=(-?[\d.]+) "
+        r"hp=(\d+) kills=(\d+) razings=(\d+) damage=([\d.]+) cycle=(\d+)",
+        logs,
+    )
+    assert [row[0] for row in observations] == ["baseline", "third", "own", "lethal"], logs
+    baseline, third, own, lethal = observations
+    assert int(baseline[6]) == int(third[6]) < int(own[6]) < int(lethal[6]), logs
+    assert [int(row[2]) for row in observations] == [400, 380, 360, 0], logs
+    assert float(baseline[1]) == float(third[1]) == 0, logs
+    assert float(own[1]) > 0, logs
+    assert float(lethal[1]) > float(own[1]) + 50, logs
+    assert [int(row[3]) for row in observations[:3]] == [0, 0, 0], logs
+    assert [int(row[4]) for row in observations[:3]] == [0, 0, 0], logs
+    assert int(lethal[4]) == 1, logs
+    assert float(baseline[5]) == float(third[5]) == 0, logs
+    assert float(own[5]) > 0 and float(lethal[5]) > float(own[5]), logs
