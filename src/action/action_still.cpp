@@ -352,9 +352,6 @@ bool AutoRepair(CUnit &unit)
 
 bool COrder_Still::AutoAttackStand(CUnit &unit)
 {
-	if (IsWar1gusAi(*unit.Player)) {
-		return false;
-	}
 	if (unit.Type->CanAttack == false) {
 		return false;
 	}
@@ -419,9 +416,6 @@ bool COrder_Still::AutoCastStand(CUnit &unit)
 */
 bool AutoAttack(CUnit &unit)
 {
-	if (IsWar1gusAi(*unit.Player)) {
-		return false;
-	}
 	if (unit.Type->CanAttack == false) {
 		return false;
 	}

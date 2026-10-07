@@ -287,7 +287,7 @@ void COrder_Follow::Execute(CUnit &unit) /* override */
 	// Attack any enemy in reaction range.
 	// If don't set the goal, the unit can than choose a
 	//  better goal if moving nearer to enemy.
-	if (!IsWar1gusAi(*unit.Player) && unit.Type->CanAttack
+	if (unit.Type->CanAttack
 	    && (!goal || goal->CurrentAction() == UnitAction::Attack
 	        || goal->CurrentAction() == UnitAction::Still)) {
 		CUnit *target = AttackUnitsInReactRange(unit);

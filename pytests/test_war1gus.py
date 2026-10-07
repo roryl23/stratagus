@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import socket
 import subprocess
 import time
@@ -179,3 +181,144 @@ def test_war1gus_campaign_maps(
         "Aborted",
     ):
         assert marker not in combined
+
+
+@pytest.mark.gui
+@pytest.mark.cross
+@pytest.mark.slow
+def test_war1gus_idle_footman_autoattacks_without_policy_orders(
+    stratagus_player: dict,
+    extracted_war1gus_data: Path,
+    gui_env,
+    tmp_path: Path,
+):
+    """The war1gus AI bypass must not suppress ordinary unit target acquisition."""
+    write_war1gus_preferences(tmp_path)
+    map_path = tmp_path / "idle.smp"
+    map_path.write_text(
+        'DefinePlayerTypes("computer", "person", "computer", "person", "person")\n'
+        'PresentMap("Idle auto-attack isolation", 5, 32, 32, 1)\n'
+    )
+    (tmp_path / "idle.sms").write_text("""
+local function log(message)
+  print("AUTOATTACK_TEST " .. message)
+  if io and io.stdout then io.stdout:flush() end
+end
+for i = 0, 4 do
+  SetStartView(i, 15, 15)
+  SetPlayerData(i, "Resources", "gold", 1000)
+  SetPlayerData(i, "Resources", "wood", 1000)
+  SetPlayerData(i, "Resources", "lumber", 0)
+  SetPlayerData(i, "RaceName", (i == 1 or i == 3) and "orc" or "human")
+end
+SetAiType(0, "war1gus-ai")
+SetAiType(2, "idle-control-ai")
+LoadTileModels("scripts/tilesets/forest.lua")
+for y = 0, 31 do
+  for x = 0, 31 do SetTile(80, x, y, 0) end
+end
+if MapUnitsInit ~= nil then MapUnitsInit() end
+local policySoldier = CreateUnit("unit-footman", 0, {6, 6})
+local policyTarget = CreateUnit("unit-orc-farm", 1, {9, 6})
+local controlSoldier = CreateUnit("unit-footman", 2, {6, 16})
+local controlTarget = CreateUnit("unit-orc-farm", 3, {9, 16})
+local attackMoveSoldier = CreateUnit("unit-footman", 0, {4, 24})
+local attackMoveTarget = CreateUnit("unit-orc-farm", 1, {13, 27})
+CreateUnit("unit-human-town-hall", 4, {23, 23})
+AddTrigger(function() return GameCycle >= 1 end, function()
+  SetDiplomacy(0, "enemy", 1)
+  SetDiplomacy(1, "enemy", 0)
+  SetDiplomacy(2, "enemy", 3)
+  SetDiplomacy(3, "enemy", 2)
+  SetFogOfWar(false)
+  RevealMap("explored")
+  return false
+end)
+AddTrigger(function() return GameCycle >= 3 end, function()
+  OrderUnit(0, "unit-footman", {4, 24}, {27, 24}, "attack")
+  log("ATTACK_MOVE_ORDERED")
+  return false
+end)
+local policyInitial = GetUnitVariable(policyTarget, "HitPoints")
+local controlInitial = GetUnitVariable(controlTarget, "HitPoints")
+local attackMoveInitial = GetUnitVariable(attackMoveTarget, "HitPoints")
+log("READY policy_target_hp=" .. policyInitial .. " control_target_hp=" .. controlInitial
+  .. " attackmove_target_hp=" .. attackMoveInitial)
+AddTrigger(function() return GameCycle >= 450 end, function()
+  log("RESULT cycle=" .. GameCycle
+    .. " policy_target_hp=" .. GetUnitVariable(policyTarget, "HitPoints")
+    .. " control_target_hp=" .. GetUnitVariable(controlTarget, "HitPoints")
+    .. " attackmove_target_hp=" .. GetUnitVariable(attackMoveTarget, "HitPoints")
+    .. " attackmove_x=" .. GetUnitVariable(attackMoveSoldier, "PosX")
+    .. " attackmove_y=" .. GetUnitVariable(attackMoveSoldier, "PosY")
+    .. " policy_diplomacy=" .. GetDiplomacy(0, 1)
+    .. " control_diplomacy=" .. GetDiplomacy(2, 3))
+  Exit(0)
+  return false
+end)
+""")
+    startup = tmp_path / "start.lua"
+    startup.write_text(f"""
+Load("scripts/stratagus.lua")
+SetTitleScreens({{}})
+-- Both AI callbacks deliberately issue no commands. Only the AI type name
+-- differs, so damage must come from the engine's unit-level auto-attack.
+local policyCalls = 0
+local controlCalls = 0
+DefineAi("war1gus-ai", "*", "war1gus-ai", function()
+  policyCalls = policyCalls + 1
+  if policyCalls == 1 then print("AUTOATTACK_TEST POLICY_CALLBACK_NO_ORDERS") io.stdout:flush() end
+end, 5)
+DefineAi("idle-control-ai", "*", "idle-control-ai", function()
+  controlCalls = controlCalls + 1
+  if controlCalls == 1 then print("AUTOATTACK_TEST CONTROL_CALLBACK_NO_ORDERS") io.stdout:flush() end
+end, 5)
+CustomStartup = function()
+  InitGameSettings()
+  GameSettings.GameType = -1
+  RunMap({json.dumps(str(map_path))}, false)
+  Exit(0)
+end
+""")
+    test_env = dict(gui_env)
+    test_env["STRATAGUS_UNBUFFERED_STDIO"] = "1"
+    stdout = tmp_path / "autoattack.stdout"
+    stderr = tmp_path / "autoattack.stderr"
+    cmd = _participant_cmd(
+        stratagus_player,
+        ["-b", "-r", "-d", str(extracted_war1gus_data), "-u", str(tmp_path), "-c", str(startup)],
+    )
+    process = _launch(cmd, cwd=extracted_war1gus_data, env=test_env, stdout=stdout, stderr=stderr)
+    try:
+        process.wait(timeout=60)
+    finally:
+        terminate_process(process)
+
+    logs = _combined_logs((stdout, stderr))
+    assert process.returncode == 0, logs
+    assert "AUTOATTACK_TEST POLICY_CALLBACK_NO_ORDERS" in logs, logs
+    assert "AUTOATTACK_TEST ATTACK_MOVE_ORDERED" in logs, logs
+    assert "AUTOATTACK_TEST CONTROL_CALLBACK_NO_ORDERS" in logs, logs
+    ready = re.search(
+        r"AUTOATTACK_TEST READY policy_target_hp=(\d+) control_target_hp=(\d+) "
+        r"attackmove_target_hp=(\d+)",
+        logs,
+    )
+    result = re.search(
+        r"AUTOATTACK_TEST RESULT cycle=(\d+) policy_target_hp=(\d+) "
+        r"control_target_hp=(\d+) attackmove_target_hp=(\d+) attackmove_x=(\d+) "
+        r"attackmove_y=(\d+) policy_diplomacy=(\w+) control_diplomacy=(\w+)",
+        logs,
+    )
+    assert ready is not None and result is not None, logs
+    policy_initial, control_initial, attackmove_initial = map(int, ready.groups())
+    cycle, policy_hp, control_hp, attackmove_hp, attackmove_x, attackmove_y = map(
+        int, result.groups()[:6]
+    )
+    assert cycle >= 450, logs
+    assert result.groups()[6:] == ("enemy", "enemy"), logs
+    assert policy_initial > 0 and control_initial > 0, logs
+    assert control_hp < control_initial, logs
+    assert policy_hp < policy_initial, logs
+    assert attackmove_initial > 0 and attackmove_hp < attackmove_initial, logs
+    assert attackmove_x < 27, logs

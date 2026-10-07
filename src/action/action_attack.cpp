@@ -364,9 +364,6 @@ CUnit &COrder_Attack::BestTarget(const CUnit &unit, CUnit &target1, CUnit &targe
 */
 void COrder_Attack::OfferNewTarget(const CUnit &unit, CUnit &target)
 {
-	if (IsWar1gusAi(*unit.Player)) {
-		return;
-	}
 	Assert(this->IsAutoTargeting() || unit.Player->AiEnabled);
 
 	/// if attacker can't move (stand_ground, building, in a bunker or transport)
@@ -640,7 +637,7 @@ bool COrder_Attack::CheckForTargetInRange(CUnit &unit)
 		return true;
 	}
 
-	if (!IsWar1gusAi(*unit.Player) && (IsAutoTargeting() || unit.Player->AiEnabled)) {
+	if (IsAutoTargeting() || unit.Player->AiEnabled) {
 		const bool hadGoal = this->HasGoal();
 		if (!AutoSelectTarget(unit) && hadGoal) {
 			EndActionAttack(unit, RESTORE_ONLY);
@@ -750,8 +747,7 @@ void COrder_Attack::MoveToTarget(CUnit &unit)
 	CUnit *goal = this->GetGoal();
 	// Waiting or on the way
 	if (err >= 0) {
-		if (!CheckForTargetInRange(unit) && !IsWar1gusAi(*unit.Player)
-		    && (IsAutoTargeting() || unit.Player->AiEnabled)) {
+		if (!CheckForTargetInRange(unit) && (IsAutoTargeting() || unit.Player->AiEnabled)) {
 			CUnit *currGoal = this->GetGoal();
 			if (currGoal && goal != currGoal) {
 				if (InAttackRange(unit, *currGoal)) {
@@ -825,7 +821,7 @@ void COrder_Attack::AttackTarget(CUnit &unit)
 		return;
 	}
 
-	if (!IsWar1gusAi(*unit.Player) && (IsAutoTargeting() || unit.Player->AiEnabled)) {
+	if (IsAutoTargeting() || unit.Player->AiEnabled) {
 		if (!AutoSelectTarget(unit)) {
 			EndActionAttack(unit, RESTORE_ONLY);
 			return;
