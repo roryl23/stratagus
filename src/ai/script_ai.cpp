@@ -36,6 +36,7 @@
 #include "ai.h"
 #include "ai_local.h"
 #include "commands.h"
+#include "depend.h"
 #include "interface.h"
 #include "map.h"
 #include "net_lowlevel.h"
@@ -1987,6 +1988,27 @@ static CUnitType *AiCommandBuildAt(lua_State *l, const int argumentIndex, Vec2i 
 	const int y = AiCommandTableInteger(l, argumentIndex, "y", "AI batch build-at y");
 	return AiCommandMapPosition(x, y, position) ? type : nullptr;
 }
+static int CclAiCanProduceType(lua_State *l)
+{
+	if (lua_gettop(l) != 2) {
+		LuaError(l, "AiCanProduceType expects player and type");
+	}
+	const int playerIndex = AiCommandInteger(l, 1, "AiCanProduceType player");
+	if (!lua_isstring(l, 2)) {
+		LuaError(l, "AiCanProduceType type must be a unit type identifier");
+	}
+	if (playerIndex < 0 || playerIndex >= PlayerMax) {
+		return AiCommandResult(l, false);
+	}
+	CUnitType *type = AiCommandUnitType(LuaToString(l, 2));
+	if (type == nullptr) {
+		return AiCommandResult(l, false);
+	}
+	const CPlayer &player = Players[playerIndex];
+	return AiCommandResult(l,
+	                       CheckDependByType(player, *type) && AiBatchCanAffordType(player, *type));
+}
+
 static int CclAiCanBuildAt(lua_State *l)
 {
 	if (lua_gettop(l) != 4) {
@@ -3061,6 +3083,7 @@ void AiCclRegister()
 	lua_register(Lua, "AiExternalDecisionAuthority", CclAiExternalDecisionAuthority);
 	lua_register(Lua, "AiPublishCommandBatch", CclAiPublishCommandBatch);
 	lua_register(Lua, "AiCanBuildAt", CclAiCanBuildAt);
+	lua_register(Lua, "AiCanProduceType", CclAiCanProduceType);
 	lua_register(Lua, "AiActionCatalog", CclAiActionCatalog);
 	lua_register(Lua, "AiUnitOnMap", CclAiUnitOnMap);
 	luaL_newmetatable(Lua, AiProcessorHandleType);

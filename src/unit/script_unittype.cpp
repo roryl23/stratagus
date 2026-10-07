@@ -33,10 +33,6 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
-#include "unittype.h"
-
 #include "actions.h"
 #include "animation.h"
 #include "construct.h"
@@ -48,17 +44,19 @@
 #include "script.h"
 #include "sound.h"
 #include "spells.h"
+#include "stratagus.h"
 #include "ui.h"
 #include "unit.h"
-#include "unitsound.h"
 #include "unit_manager.h"
+#include "unitsound.h"
+#include "unittype.h"
 #include "video.h"
 
 /*----------------------------------------------------------------------------
 --  Variables
 ----------------------------------------------------------------------------*/
 
-CUnitTypeVar UnitTypeVar;    /// Variables for UnitType and unit.
+CUnitTypeVar UnitTypeVar; /// Variables for UnitType and unit.
 
 // names of boolflags
 static const char COWARD_KEY[] = "Coward";
@@ -150,16 +148,44 @@ static const char PRIORITY_KEY[] = "Priority";
 
 CUnitTypeVar::CBoolKeys::CBoolKeys()
 {
-	const char *const tmp[] = {COWARD_KEY, BUILDING_KEY, FLIP_KEY, REVEALER_KEY,
-							   LANDUNIT_KEY, AIRUNIT_KEY, SEAUNIT_KEY, EXPLODEWHENKILLED_KEY,
-							   VISIBLEUNDERFOG_KEY, PERMANENTCLOAK_KEY, DETECTCLOAK_KEY,
-							   ATTACKFROMTRANSPORTER_KEY, VANISHES_KEY, GROUNDATTACK_KEY,
-							   SHOREBUILDING_KEY, CANATTACK_KEY, BUILDEROUTSIDE_KEY,
-							   BUILDERLOST_KEY, CANHARVEST_KEY, HARVESTER_KEY, SELECTABLEBYRECTANGLE_KEY,
-							   ISNOTSELECTABLE_KEY, DECORATION_KEY, INDESTRUCTIBLE_KEY, TELEPORTER_KEY, SHIELDPIERCE_KEY,
-							   SAVECARGO_KEY, NONSOLID_KEY, WALL_KEY, NORANDOMPLACING_KEY, ORGANIC_KEY, SIDEATTACK_KEY, SURROUND_ATTACK_KEY, SKIRMISHER_KEY,
-							   ALWAYSTHREAT_KEY, ELEVATED_KEY, NOFRIENDLYFIRE_KEY, MAINFACILITY_KEY
-							  };
+	const char *const tmp[] = {COWARD_KEY,
+	                           BUILDING_KEY,
+	                           FLIP_KEY,
+	                           REVEALER_KEY,
+	                           LANDUNIT_KEY,
+	                           AIRUNIT_KEY,
+	                           SEAUNIT_KEY,
+	                           EXPLODEWHENKILLED_KEY,
+	                           VISIBLEUNDERFOG_KEY,
+	                           PERMANENTCLOAK_KEY,
+	                           DETECTCLOAK_KEY,
+	                           ATTACKFROMTRANSPORTER_KEY,
+	                           VANISHES_KEY,
+	                           GROUNDATTACK_KEY,
+	                           SHOREBUILDING_KEY,
+	                           CANATTACK_KEY,
+	                           BUILDEROUTSIDE_KEY,
+	                           BUILDERLOST_KEY,
+	                           CANHARVEST_KEY,
+	                           HARVESTER_KEY,
+	                           SELECTABLEBYRECTANGLE_KEY,
+	                           ISNOTSELECTABLE_KEY,
+	                           DECORATION_KEY,
+	                           INDESTRUCTIBLE_KEY,
+	                           TELEPORTER_KEY,
+	                           SHIELDPIERCE_KEY,
+	                           SAVECARGO_KEY,
+	                           NONSOLID_KEY,
+	                           WALL_KEY,
+	                           NORANDOMPLACING_KEY,
+	                           ORGANIC_KEY,
+	                           SIDEATTACK_KEY,
+	                           SURROUND_ATTACK_KEY,
+	                           SKIRMISHER_KEY,
+	                           ALWAYSTHREAT_KEY,
+	                           ELEVATED_KEY,
+	                           NOFRIENDLYFIRE_KEY,
+	                           MAINFACILITY_KEY};
 
 	for (int i = 0; i < NBARALREADYDEFINED; ++i) {
 		buildin[i].offset = i;
@@ -170,17 +196,48 @@ CUnitTypeVar::CBoolKeys::CBoolKeys()
 
 CUnitTypeVar::CVariableKeys::CVariableKeys()
 {
-
-	const char *const tmp[] = {HITPOINTS_KEY, BUILD_KEY, MANA_KEY, TRANSPORT_KEY,
-							   RESEARCH_KEY, TRAINING_KEY, UPGRADETO_KEY, GIVERESOURCE_KEY,
-							   CARRYRESOURCE_KEY, XP_KEY, KILL_KEY,	SUPPLY_KEY, DEMAND_KEY, ARMOR_KEY,
-							   SIGHTRANGE_KEY, ATTACKRANGE_KEY, PIERCINGDAMAGE_KEY,
-							   BASICDAMAGE_KEY, POSX_KEY, POSY_KEY, POS_RIGHT_KEY, POS_BOTTOM_KEY, TARGETPOSX_KEY, TARGETPOSY_KEY, RADARRANGE_KEY,
-							   RADARJAMMERRANGE_KEY, AUTOREPAIRRANGE_KEY, BLOODLUST_KEY, HASTE_KEY,
-							   SLOW_KEY, INVISIBLE_KEY, UNHOLYARMOR_KEY, SLOT_KEY, SHIELD_KEY, POINTS_KEY,
-							   MAXHARVESTERS_KEY, POISON_KEY, SHIELDPERMEABILITY_KEY, SHIELDPIERCING_KEY, ISALIVE_KEY, PLAYER_KEY,
-							   PRIORITY_KEY
-							  };
+	const char *const tmp[] = {HITPOINTS_KEY,
+	                           BUILD_KEY,
+	                           MANA_KEY,
+	                           TRANSPORT_KEY,
+	                           RESEARCH_KEY,
+	                           TRAINING_KEY,
+	                           UPGRADETO_KEY,
+	                           GIVERESOURCE_KEY,
+	                           CARRYRESOURCE_KEY,
+	                           XP_KEY,
+	                           KILL_KEY,
+	                           SUPPLY_KEY,
+	                           DEMAND_KEY,
+	                           ARMOR_KEY,
+	                           SIGHTRANGE_KEY,
+	                           ATTACKRANGE_KEY,
+	                           PIERCINGDAMAGE_KEY,
+	                           BASICDAMAGE_KEY,
+	                           POSX_KEY,
+	                           POSY_KEY,
+	                           POS_RIGHT_KEY,
+	                           POS_BOTTOM_KEY,
+	                           TARGETPOSX_KEY,
+	                           TARGETPOSY_KEY,
+	                           RADARRANGE_KEY,
+	                           RADARJAMMERRANGE_KEY,
+	                           AUTOREPAIRRANGE_KEY,
+	                           BLOODLUST_KEY,
+	                           HASTE_KEY,
+	                           SLOW_KEY,
+	                           INVISIBLE_KEY,
+	                           UNHOLYARMOR_KEY,
+	                           SLOT_KEY,
+	                           SHIELD_KEY,
+	                           POINTS_KEY,
+	                           MAXHARVESTERS_KEY,
+	                           POISON_KEY,
+	                           SHIELDPERMEABILITY_KEY,
+	                           SHIELDPIERCING_KEY,
+	                           ISALIVE_KEY,
+	                           PLAYER_KEY,
+	                           PRIORITY_KEY};
 
 	for (int i = 0; i < NVARALREADYDEFINED; ++i) {
 		buildin[i].offset = i;
@@ -205,7 +262,6 @@ unsigned CclGetResourceByName(lua_State *l)
 
 	return resId;
 }
-
 
 /**
 **  Find the index of a extra death type
@@ -338,8 +394,7 @@ static std::unique_ptr<CBuildRestrictionAnd> ParseBuildingRules(lua_State *l)
 				}
 			}
 			andlist->push_back(std::move(b));
-		}
-		else if (value == "surrounded-by") {
+		} else if (value == "surrounded-by") {
 			auto b = std::make_unique<CBuildRestrictionSurroundedBy>();
 
 			for (lua_pushnil(l); lua_next(l, -2); lua_pop(l, 1)) {
@@ -374,13 +429,13 @@ static std::unique_ptr<CBuildRestrictionAnd> ParseBuildingRules(lua_State *l)
 static void UpdateDefaultBoolFlags(CUnitType &type)
 {
 	// BoolFlag
-	type.BoolFlag[BUILDING_INDEX].value              = type.Building;
-	type.BoolFlag[FLIP_INDEX].value                  = type.Flip;
-	type.BoolFlag[LANDUNIT_INDEX].value              = type.LandUnit;
-	type.BoolFlag[AIRUNIT_INDEX].value               = type.AirUnit;
-	type.BoolFlag[SEAUNIT_INDEX].value               = type.SeaUnit;
-	type.BoolFlag[EXPLODEWHENKILLED_INDEX].value     = type.ExplodeWhenKilled;
-	type.BoolFlag[CANATTACK_INDEX].value             = type.CanAttack;
+	type.BoolFlag[BUILDING_INDEX].value = type.Building;
+	type.BoolFlag[FLIP_INDEX].value = type.Flip;
+	type.BoolFlag[LANDUNIT_INDEX].value = type.LandUnit;
+	type.BoolFlag[AIRUNIT_INDEX].value = type.AirUnit;
+	type.BoolFlag[SEAUNIT_INDEX].value = type.SeaUnit;
+	type.BoolFlag[EXPLODEWHENKILLED_INDEX].value = type.ExplodeWhenKilled;
+	type.BoolFlag[CANATTACK_INDEX].value = type.CanAttack;
 }
 
 static std::optional<EMouseAction> ToEMouseAction(std::string_view s)
@@ -645,7 +700,8 @@ static int CclDefineUnitType(lua_State *l)
 				const int res = CclGetResourceByName(l);
 				lua_pop(l, 1);
 				++k;
-				type->DefaultStat.ImproveIncomes[res] = DefaultIncomes[res] + LuaToNumber(l, -1, k + 1);
+				type->DefaultStat.ImproveIncomes[res] =
+					DefaultIncomes[res] + LuaToNumber(l, -1, k + 1);
 			}
 		} else if (value == "Construction") {
 			type->Construction = &ConstructionByIdent(LuaToString(l, -1));
@@ -716,8 +772,8 @@ static int CclDefineUnitType(lua_State *l)
 			type->DefaultStat.Variables[MAXHARVESTERS_INDEX].Value = LuaToNumber(l, -1);
 			type->DefaultStat.Variables[MAXHARVESTERS_INDEX].Max = LuaToNumber(l, -1);
 		} else if (value == "Priority") {
-			type->DefaultStat.Variables[PRIORITY_INDEX].Value  = LuaToNumber(l, -1);
-			type->DefaultStat.Variables[PRIORITY_INDEX].Max  = LuaToNumber(l, -1);
+			type->DefaultStat.Variables[PRIORITY_INDEX].Value = LuaToNumber(l, -1);
+			type->DefaultStat.Variables[PRIORITY_INDEX].Max = LuaToNumber(l, -1);
 		} else if (value == "AnnoyComputerFactor") {
 			type->AnnoyComputerFactor = LuaToNumber(l, -1);
 		} else if (value == "AiAdjacentRange") {
@@ -802,7 +858,8 @@ static int CclDefineUnitType(lua_State *l)
 						type->Impact[ANIMATIONS_DEATHTYPES + 1].MapMissile();
 					}
 				} else {
-					const int num = std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, dtype));
+					const int num =
+						std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, dtype));
 					if (num == ANIMATIONS_DEATHTYPES) {
 						LuaError(l, "Death type not found: %s", dtype.data());
 					} else {
@@ -1123,7 +1180,8 @@ static int CclDefineUnitType(lua_State *l)
 					type->Sound.WorkComplete.Name = LuaToString(l, -1, k + 1);
 				} else if (value == "dead") {
 					const std::string_view name = LuaToString(l, -1, k + 1);
-					const int death = std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, name));
+					const int death =
+						std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, name));
 
 					if (death == ANIMATIONS_DEATHTYPES) {
 						type->Sound.Dead[ANIMATIONS_DEATHTYPES].Name = name;
@@ -1172,16 +1230,17 @@ static int CclDefineUnitType(lua_State *l)
 
 	// If number of directions is not specified,
 	// specify it but not for forward-declaration
-	if (type->NumDirections == 0 && !forward_declaration)
-	{
+	if (type->NumDirections == 0 && !forward_declaration) {
 		// make a guess Building have 1 direction and units 8
 		type->NumDirections = type->Building ? 1 : 8;
-		LuaDebugPrint(l, "Defaulting 'NumDirections' of %s to %d\n", str.data(), type->NumDirections);
+		LuaDebugPrint(
+			l, "Defaulting 'NumDirections' of %s to %d\n", str.data(), type->NumDirections);
 	}
 
 	// FIXME: try to simplify/combine the flags instead
 	if (type->MouseAction == EMouseAction::Attack && !type->CanAttack) {
-		LuaError(l, "Unit-type '%s': right-attack is set, but can-attack is not\n", type->Name.c_str());
+		LuaError(
+			l, "Unit-type '%s': right-attack is set, but can-attack is not\n", type->Name.c_str());
 	}
 	UpdateDefaultBoolFlags(*type);
 	if (!CclInConfigFile) {
@@ -1251,14 +1310,17 @@ static int CclCopyUnitType(lua_State *l)
 	to->ButtonLevelForTransporter = from.ButtonLevelForTransporter;
 	to->StartingResources = from.StartingResources;
 	to->DefaultStat.Variables[HP_INDEX].Increase = from.DefaultStat.Variables[HP_INDEX].Increase;
-	to->DefaultStat.Variables[HP_INDEX].IncreaseFrequency = from.DefaultStat.Variables[HP_INDEX].IncreaseFrequency;
+	to->DefaultStat.Variables[HP_INDEX].IncreaseFrequency =
+		from.DefaultStat.Variables[HP_INDEX].IncreaseFrequency;
 	to->BurnPercent = from.BurnPercent;
 	to->BurnDamageRate = from.BurnDamageRate;
 	to->PoisonDrain = from.PoisonDrain;
 	to->DefaultStat.Variables[SHIELD_INDEX].Max = from.DefaultStat.Variables[SHIELD_INDEX].Max;
 	to->DefaultStat.Variables[SHIELD_INDEX].Value = from.DefaultStat.Variables[SHIELD_INDEX].Value;
-	to->DefaultStat.Variables[SHIELD_INDEX].Increase = from.DefaultStat.Variables[SHIELD_INDEX].Increase;
-	to->DefaultStat.Variables[SHIELD_INDEX].Enable = from.DefaultStat.Variables[SHIELD_INDEX].Enable;
+	to->DefaultStat.Variables[SHIELD_INDEX].Increase =
+		from.DefaultStat.Variables[SHIELD_INDEX].Increase;
+	to->DefaultStat.Variables[SHIELD_INDEX].Enable =
+		from.DefaultStat.Variables[SHIELD_INDEX].Enable;
 	to->TileWidth = from.TileWidth;
 	to->TileHeight = from.TileHeight;
 	to->NeutralMinimapColorRGB = from.NeutralMinimapColorRGB;
@@ -1272,12 +1334,18 @@ static int CclCopyUnitType(lua_State *l)
 	to->Missile.Name = from.Missile.Name;
 	to->Missile.Missile = nullptr; // filled in later
 	to->MinAttackRange = from.MinAttackRange;
-	to->DefaultStat.Variables[ATTACKRANGE_INDEX].Value = from.DefaultStat.Variables[ATTACKRANGE_INDEX].Value;
-	to->DefaultStat.Variables[ATTACKRANGE_INDEX].Max = from.DefaultStat.Variables[ATTACKRANGE_INDEX].Max;
-	to->DefaultStat.Variables[ATTACKRANGE_INDEX].Enable = from.DefaultStat.Variables[ATTACKRANGE_INDEX].Enable;
-	to->DefaultStat.Variables[MAXHARVESTERS_INDEX].Value = from.DefaultStat.Variables[MAXHARVESTERS_INDEX].Value;
-	to->DefaultStat.Variables[MAXHARVESTERS_INDEX].Max = from.DefaultStat.Variables[MAXHARVESTERS_INDEX].Max;
-	to->DefaultStat.Variables[PRIORITY_INDEX].Value = from.DefaultStat.Variables[PRIORITY_INDEX].Value;
+	to->DefaultStat.Variables[ATTACKRANGE_INDEX].Value =
+		from.DefaultStat.Variables[ATTACKRANGE_INDEX].Value;
+	to->DefaultStat.Variables[ATTACKRANGE_INDEX].Max =
+		from.DefaultStat.Variables[ATTACKRANGE_INDEX].Max;
+	to->DefaultStat.Variables[ATTACKRANGE_INDEX].Enable =
+		from.DefaultStat.Variables[ATTACKRANGE_INDEX].Enable;
+	to->DefaultStat.Variables[MAXHARVESTERS_INDEX].Value =
+		from.DefaultStat.Variables[MAXHARVESTERS_INDEX].Value;
+	to->DefaultStat.Variables[MAXHARVESTERS_INDEX].Max =
+		from.DefaultStat.Variables[MAXHARVESTERS_INDEX].Max;
+	to->DefaultStat.Variables[PRIORITY_INDEX].Value =
+		from.DefaultStat.Variables[PRIORITY_INDEX].Value;
 	to->DefaultStat.Variables[PRIORITY_INDEX].Max = from.DefaultStat.Variables[PRIORITY_INDEX].Max;
 	to->AnnoyComputerFactor = from.AnnoyComputerFactor;
 	to->AiAdjacentRange = from.AiAdjacentRange;
@@ -1352,7 +1420,8 @@ static int CclCopyUnitType(lua_State *l)
 		to->BoolFlag[i].AiPriorityTarget = from.BoolFlag[i].AiPriorityTarget;
 	}
 	for (std::size_t i = 0; i != std::size(to->ResInfo); ++i) {
-		from.ResInfo[i] = to->ResInfo[i] ? std::make_unique<ResourceInfo>(*to->ResInfo[i]) : nullptr;
+		from.ResInfo[i] =
+			to->ResInfo[i] ? std::make_unique<ResourceInfo>(*to->ResInfo[i]) : nullptr;
 	}
 	to->GivesResource = from.GivesResource;
 	ranges::copy(from.CanStore, std::begin(to->CanStore));
@@ -1377,7 +1446,8 @@ static int CclCopyUnitType(lua_State *l)
 		to->DefaultStat.Variables[i].Value = from.DefaultStat.Variables[i].Value;
 		to->DefaultStat.Variables[i].Max = from.DefaultStat.Variables[i].Max;
 		to->DefaultStat.Variables[i].Increase = from.DefaultStat.Variables[i].Increase;
-		to->DefaultStat.Variables[i].IncreaseFrequency = from.DefaultStat.Variables[i].IncreaseFrequency;
+		to->DefaultStat.Variables[i].IncreaseFrequency =
+			from.DefaultStat.Variables[i].IncreaseFrequency;
 	}
 
 	UpdateDefaultBoolFlags(*to);
@@ -1474,7 +1544,7 @@ static int CclDefineUnitStats(lua_State *l)
 				warnedLegacyShadowFly = true;
 			}
 		} else {
-			int i = UnitTypeVar.VariableNameLookup[value];// User variables
+			int i = UnitTypeVar.VariableNameLookup[value]; // User variables
 			if (i != -1) { // valid index
 				lua_rawgeti(l, 3, j + 1);
 				if (lua_istable(l, -1)) {
@@ -1509,9 +1579,9 @@ CUnitType *CclGetUnitType(lua_State *l)
 		const std::string_view str = LuaToString(l, -1);
 		return &UnitTypeByIdent(str);
 	} else if (lua_isuserdata(l, -1)) {
-		LuaUserData *data = (LuaUserData *)lua_touserdata(l, -1);
+		LuaUserData *data = (LuaUserData *) lua_touserdata(l, -1);
 		if (data->Type == LuaUnitType) {
-			return (CUnitType *)data->Data;
+			return (CUnitType *) data->Data;
 		}
 	}
 	LuaError(l, "CclGetUnitType: not a unit-type");
@@ -1531,7 +1601,7 @@ static int CclUnitType(lua_State *l)
 
 	const std::string_view str = LuaToString(l, 1);
 	CUnitType &type = UnitTypeByIdent(str);
-	LuaUserData *data = (LuaUserData *)lua_newuserdata(l, sizeof(LuaUserData));
+	LuaUserData *data = (LuaUserData *) lua_newuserdata(l, sizeof(LuaUserData));
 	data->Type = LuaUnitType;
 	data->Data = &type;
 	return 1;
@@ -1552,7 +1622,7 @@ static int CclUnitTypeArray(lua_State *l)
 
 	std::size_t i = 1;
 	for (auto type : getUnitTypes()) {
-		LuaUserData *data = (LuaUserData *)lua_newuserdata(l, sizeof(LuaUserData));
+		LuaUserData *data = (LuaUserData *) lua_newuserdata(l, sizeof(LuaUserData));
 		data->Type = LuaUnitType;
 		data->Data = type;
 		lua_rawseti(l, 1, i++);
@@ -1667,6 +1737,12 @@ static int CclGetUnitTypeData(lua_State *l)
 		} else {
 			lua_pushnumber(l, type->MapDefaultStat.Costs[resId]);
 		}
+		return 1;
+	} else if (data == "CanStore") {
+		LuaCheckArgs(l, 3);
+		const std::string_view res = LuaToString(l, 3);
+		const int resId = GetResourceIdByName(l, res);
+		lua_pushboolean(l, type->CanStore[resId] > 0);
 		return 1;
 	} else if (data == "ImproveProduction") {
 		LuaCheckArgs(l, 3);
@@ -1799,7 +1875,8 @@ static int CclGetUnitTypeData(lua_State *l)
 				}
 			} else {
 				const std::string_view sound_subtype = LuaToString(l, 4);
-				const int death = std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, sound_subtype));
+				const int death =
+					std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, sound_subtype));
 
 				if (death == ANIMATIONS_DEATHTYPES) {
 					if (!GameRunning && Editor.Running != EditorEditing) {
@@ -1944,7 +2021,8 @@ static int CclDefineBoolFlags(lua_State *l)
 */
 static int CclDefineDecorations(lua_State *l)
 {
-	struct {
+	struct
+	{
 		int Index = 0;
 		PixelPos Offset{0, 0};
 		Vec2i OffsetPercent{0, 0};
@@ -1972,7 +2050,7 @@ static int CclDefineDecorations(lua_State *l)
 			std::string_view key = LuaToString(l, -2);
 			if (key == "Index") {
 				const std::string_view value = LuaToString(l, -1);
-				tmp.Index = UnitTypeVar.VariableNameLookup[value];// User variables
+				tmp.Index = UnitTypeVar.VariableNameLookup[value]; // User variables
 				Assert(tmp.Index != -1);
 			} else if (key == "Offset") {
 				CclGetPos(l, &tmp.Offset);
@@ -2026,7 +2104,9 @@ static int CclDefineDecorations(lua_State *l)
 							} else if (key == "vertical") {
 								decovarbar->IsVertical = 1;
 							} else { // Error
-								LuaError(l, "invalid Orientation '%s' for bar in DefineDecorations", key.data());
+								LuaError(l,
+								         "invalid Orientation '%s' for bar in DefineDecorations",
+								         key.data());
 							}
 						} else if (key == "SEToNW") {
 							decovarbar->SEToNW = LuaToBoolean(l, -1);
@@ -2073,7 +2153,9 @@ static int CclDefineDecorations(lua_State *l)
 					auto decovarspritebar = std::make_unique<CDecoVarSpriteBar>();
 					decovarspritebar->NSprite = GetSpriteIndex(LuaToString(l, -1, 1));
 					if (decovarspritebar->NSprite == -1) {
-						LuaError(l, "invalid sprite-name '%s' for Method in DefineDecorations", LuaToString(l, -1, 1).data());
+						LuaError(l,
+						         "invalid sprite-name '%s' for Method in DefineDecorations",
+						         LuaToString(l, -1, 1).data());
 					}
 					// FIXME : More arguments ?
 					decovar = std::move(decovarspritebar);
@@ -2092,7 +2174,9 @@ static int CclDefineDecorations(lua_State *l)
 					auto decovarspritebar = std::make_unique<CDecoVarAnimatedSprite>();
 					decovarspritebar->NSprite = GetSpriteIndex(LuaToString(l, -1, 1));
 					if (decovarspritebar->NSprite == -1) {
-						LuaError(l, "invalid sprite-name '%s' for Method in DefineDecorations", LuaToString(l, -1, 1).data());
+						LuaError(l,
+						         "invalid sprite-name '%s' for Method in DefineDecorations",
+						         LuaToString(l, -1, 1).data());
 					}
 					decovarspritebar->WaitFrames = LuaToNumber(l, -1, 2);
 					if (decovarspritebar->WaitFrames <= 0) {
@@ -2176,7 +2260,9 @@ static int CclDefinePaletteSwap(lua_State *l)
 
 		lua_rawgeti(l, 2, k + 2); // swap table
 		if (!lua_istable(l, -1) || lua_rawlen(l, -1) != 2) {
-			LuaError(l, "incorrect argument, need length 2 table with {startColorIndex, { ... color steps ... }");
+			LuaError(l,
+			         "incorrect argument, need length 2 table with {startColorIndex, { ... color "
+			         "steps ... }");
 		}
 		int startColorIndex = LuaToNumber(l, -1, 1);
 
@@ -2202,7 +2288,8 @@ static int CclDefinePaletteSwap(lua_State *l)
 				alternativesCount = lua_rawlen(l, -1);
 			}
 			for (int alt = 0; alt < alternativesCount; alt++) {
-				lua_rawgeti(l, -1, alt + 1); // swap table, steps table, alternatives table, color table
+				lua_rawgeti(
+					l, -1, alt + 1); // swap table, steps table, alternatives table, color table
 				if (!lua_istable(l, -1)) {
 					LuaError(l, "incorrect argument, need table with colors");
 				}
@@ -2225,7 +2312,7 @@ static int CclDefinePaletteSwap(lua_State *l)
 				}
 				lua_pop(l, 1); // swap table, steps table, alternatives table
 			}
-			lua_pop(l, 1);  // swap table, steps table
+			lua_pop(l, 1); // swap table, steps table
 		}
 		lua_pop(l, 1); // swap table
 		lua_pop(l, 1); // <emtpy>
@@ -2246,13 +2333,12 @@ void UpdateUnitVariables(CUnit &unit)
 
 	for (int i = 0; i < NVARALREADYDEFINED; i++) { // default values
 		if (i == ARMOR_INDEX || i == PIERCINGDAMAGE_INDEX || i == BASICDAMAGE_INDEX
-			|| i == SUPPLY_INDEX || i == DEMAND_INDEX
-			|| i == MANA_INDEX || i == KILL_INDEX || i == XP_INDEX || i == GIVERESOURCE_INDEX
-			|| i == BLOODLUST_INDEX || i == HASTE_INDEX || i == SLOW_INDEX
-			|| i == INVISIBLE_INDEX || i == UNHOLYARMOR_INDEX || i == HP_INDEX
-			|| i == SHIELD_INDEX || i == POINTS_INDEX || i == MAXHARVESTERS_INDEX
-			|| i == POISON_INDEX || i == SHIELDPERMEABILITY_INDEX || i == SHIELDPIERCING_INDEX
-			|| i == ISALIVE_INDEX || i == PLAYER_INDEX) {
+		    || i == SUPPLY_INDEX || i == DEMAND_INDEX || i == MANA_INDEX || i == KILL_INDEX
+		    || i == XP_INDEX || i == GIVERESOURCE_INDEX || i == BLOODLUST_INDEX || i == HASTE_INDEX
+		    || i == SLOW_INDEX || i == INVISIBLE_INDEX || i == UNHOLYARMOR_INDEX || i == HP_INDEX
+		    || i == SHIELD_INDEX || i == POINTS_INDEX || i == MAXHARVESTERS_INDEX
+		    || i == POISON_INDEX || i == SHIELDPERMEABILITY_INDEX || i == SHIELDPIERCING_INDEX
+		    || i == ISALIVE_INDEX || i == PLAYER_INDEX) {
 			continue;
 		}
 		unit.Variable[i].Value = 0;
@@ -2272,11 +2358,15 @@ void UpdateUnitVariables(CUnit &unit)
 	// Resources.
 	if (unit.Type->GivesResource) {
 		unit.Variable[GIVERESOURCE_INDEX].Value = unit.ResourcesHeld;
-		unit.Variable[GIVERESOURCE_INDEX].Max = unit.ResourcesHeld > unit.Variable[GIVERESOURCE_INDEX].Max ? 0x7FFFFFFF : unit.Variable[GIVERESOURCE_INDEX].Max;
+		unit.Variable[GIVERESOURCE_INDEX].Max =
+			unit.ResourcesHeld > unit.Variable[GIVERESOURCE_INDEX].Max
+				? 0x7FFFFFFF
+				: unit.Variable[GIVERESOURCE_INDEX].Max;
 	}
 	if (unit.Type->BoolFlag[HARVESTER_INDEX].value && unit.CurrentResource) {
 		unit.Variable[CARRYRESOURCE_INDEX].Value = unit.ResourcesHeld;
-		unit.Variable[CARRYRESOURCE_INDEX].Max = unit.Type->ResInfo[unit.CurrentResource]->ResourceCapacity;
+		unit.Variable[CARRYRESOURCE_INDEX].Max =
+			unit.Type->ResInfo[unit.CurrentResource]->ResourceCapacity;
 	}
 
 	// SightRange
@@ -2372,17 +2462,20 @@ void SetMapStat(std::string ident, std::string variable_key, int value, std::str
 			if (variable_type == "Value") {
 				type.MapDefaultStat.Variables[variable_index].Value = value;
 				for (int player = 0; player < PlayerMax; ++player) {
-					type.Stats[player].Variables[variable_index].Value = type.MapDefaultStat.Variables[variable_index].Value;
+					type.Stats[player].Variables[variable_index].Value =
+						type.MapDefaultStat.Variables[variable_index].Value;
 				}
 			} else if (variable_type == "Max") {
 				type.MapDefaultStat.Variables[variable_index].Max = value;
 				for (int player = 0; player < PlayerMax; ++player) {
-					type.Stats[player].Variables[variable_index].Max = type.MapDefaultStat.Variables[variable_index].Max;
+					type.Stats[player].Variables[variable_index].Max =
+						type.MapDefaultStat.Variables[variable_index].Max;
 				}
 			} else if (variable_type == "Increase") {
 				type.MapDefaultStat.Variables[variable_index].Increase = value;
 				for (int player = 0; player < PlayerMax; ++player) {
-					type.Stats[player].Variables[variable_index].Increase = type.MapDefaultStat.Variables[variable_index].Increase;
+					type.Stats[player].Variables[variable_index].Increase =
+						type.MapDefaultStat.Variables[variable_index].Increase;
 				}
 			} else if (variable_type == "IncreaseFrequency") {
 				type.MapDefaultStat.Variables[variable_index].IncreaseFrequency = value;
@@ -2391,12 +2484,14 @@ void SetMapStat(std::string ident, std::string variable_key, int value, std::str
 				// 	LuaError(l, "%s.IncreaseFrequency out of range!", variable_key.c_str());
 				// }
 				for (int player = 0; player < PlayerMax; ++player) {
-					type.Stats[player].Variables[variable_index].IncreaseFrequency = type.MapDefaultStat.Variables[variable_index].IncreaseFrequency;
+					type.Stats[player].Variables[variable_index].IncreaseFrequency =
+						type.MapDefaultStat.Variables[variable_index].IncreaseFrequency;
 				}
 			} else if (variable_type == "Enable") {
 				type.MapDefaultStat.Variables[variable_index].Enable = value;
 				for (int player = 0; player < PlayerMax; ++player) {
-					type.Stats[player].Variables[variable_index].Enable = type.MapDefaultStat.Variables[variable_index].Enable;
+					type.Stats[player].Variables[variable_index].Enable =
+						type.MapDefaultStat.Variables[variable_index].Enable;
 				}
 			} else {
 				ErrorPrint("Invalid type: '%s'\n", variable_type.c_str());
@@ -2416,7 +2511,10 @@ void SetMapStat(std::string ident, std::string variable_key, int value, std::str
 **  @param sound_type		Type of the sound
 **  @param sound			The sound to be set for that type
 */
-void SetMapSound(std::string ident, std::string sound, std::string sound_type, std::string sound_subtype)
+void SetMapSound(std::string ident,
+                 std::string sound,
+                 std::string sound_type,
+                 std::string sound_subtype)
 {
 	if (sound.empty()) {
 		return;
@@ -2441,7 +2539,8 @@ void SetMapSound(std::string ident, std::string sound, std::string sound_type, s
 	} else if (sound_type == "help") {
 		type.MapSound.Help.Name = sound;
 	} else if (sound_type == "dead") {
-		const int death = std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, sound_subtype));
+		const int death =
+			std::distance(ExtraDeathTypes, ranges::find(ExtraDeathTypes, sound_subtype));
 
 		if (death == ANIMATIONS_DEATHTYPES) {
 			type.MapSound.Dead[ANIMATIONS_DEATHTYPES].Name = sound;

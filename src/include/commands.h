@@ -43,6 +43,7 @@
 ----------------------------------------------------------------------------*/
 
 class CUnit;
+class CPlayer;
 class CFile;
 class SpellType;
 class CUnitType;
@@ -105,6 +106,8 @@ struct AiCommandBatch
 };
 
 extern bool CanExecuteAiCommandBatch(const AiCommandBatch &batch);
+/// Side-effect-free unit-type affordability and limit preflight used by AI batches.
+extern bool AiBatchCanAffordType(const CPlayer &player, const CUnitType &type);
 /// Entire batch is checked before any command can mutate simulation state.
 extern bool ExecuteAiCommandBatch(const AiCommandBatch &batch);
 

@@ -55,6 +55,18 @@
 --  Functions
 ----------------------------------------------------------------------------*/
 
+// Unlike CPlayer::CheckLimits, this preflight must not notify or play sounds
+// merely because a stale network decision is being rejected.
+bool AiBatchCanAffordType(const CPlayer &player, const CUnitType &type)
+{
+	const int units = player.GetUnitCount();
+	const int demand = type.Stats[player.Index].Variables[DEMAND_INDEX].Value;
+	return !(type.Building && player.NumBuildings >= player.BuildingLimit)
+	    && !(!type.Building && units - player.NumBuildings >= player.UnitLimit)
+	    && !(demand && player.Demand + demand > player.Supply) && units < player.TotalUnitLimit
+	    && player.GetUnitTotalCount(type) < player.Allow.Units[type.Slot]
+	    && !player.CheckCosts(type.Stats[player.Index].Costs, false);
+}
 namespace
 {
 static CUnit *AiBatchUnit(uint16_t slot)
@@ -71,19 +83,6 @@ static bool AiBatchProducer(const std::vector<std::vector<CUnitType *>> &table,
                             const CUnitType *actorType)
 {
 	return index < table.size() && ranges::find(table[index], actorType) != table[index].end();
-}
-
-// Unlike CPlayer::CheckLimits, this preflight must not notify or play sounds
-// merely because a stale network decision is being rejected.
-static bool AiBatchCanAffordType(const CPlayer &player, const CUnitType &type)
-{
-	const int units = player.GetUnitCount();
-	const int demand = type.Stats[player.Index].Variables[DEMAND_INDEX].Value;
-	return !(type.Building && player.NumBuildings >= player.BuildingLimit)
-	    && !(!type.Building && units - player.NumBuildings >= player.UnitLimit)
-	    && !(demand && player.Demand + demand > player.Supply) && units < player.TotalUnitLimit
-	    && player.GetUnitTotalCount(type) < player.Allow.Units[type.Slot]
-	    && !player.CheckCosts(type.Stats[player.Index].Costs, false);
 }
 
 static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlayer &player)
@@ -241,6 +240,7 @@ static bool AiBatchValidPrimitive(const AiCommandPrimitive &command, const CPlay
 	}
 	return false;
 }
+
 } // namespace
 
 bool CanExecuteAiCommandBatch(const AiCommandBatch &batch)
