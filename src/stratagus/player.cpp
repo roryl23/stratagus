@@ -250,13 +250,18 @@
 **    Total number of points. You can get points for killing units,
 **    destroying buildings ...
 **
-**  CPlayer::TotalUnits
+**  CPlayer::TotalUnits / CPlayer::TotalBuildings
 **
-**    Total number of units made.
+**    Historical totals of units/buildings acquired by ownership, including
+**    starting units, placed units and transfers. Not production counts.
 **
-**  CPlayer::TotalBuildings
+**  CPlayer::TrainedUnits / CPlayer::CompletedBuildings
 **
-**    Total number of buildings made.
+**    Successfully trained units and finished non-wall buildings this game.
+**
+**  CPlayer::LostUnits / CPlayer::LostBuildings
+**
+**    Units and non-wall buildings actually killed or destroyed this game.
 **
 **  CPlayer::TotalResources[::MaxCosts]
 **
@@ -562,6 +567,10 @@ void CPlayer::Save(CFile &file) const
 	file.printf("\n  \"score\", %d,", p.Score);
 	file.printf("\n  \"total-units\", %d,", p.TotalUnits);
 	file.printf("\n  \"total-buildings\", %d,", p.TotalBuildings);
+	file.printf("\n  \"trained-units\", %d,", p.TrainedUnits);
+	file.printf("\n  \"completed-buildings\", %d,", p.CompletedBuildings);
+	file.printf("\n  \"lost-units\", %d,", p.LostUnits);
+	file.printf("\n  \"lost-buildings\", %d,", p.LostBuildings);
 	file.printf("\n  \"total-resources\", {");
 	for (int j = 0; j < MaxCosts; ++j) {
 		if (j) {
@@ -830,6 +839,10 @@ void CPlayer::Clear()
 	Score = 0;
 	TotalUnits = 0;
 	TotalBuildings = 0;
+	TrainedUnits = 0;
+	CompletedBuildings = 0;
+	LostUnits = 0;
+	LostBuildings = 0;
 	ranges::fill(TotalResources, 0);
 	TotalRazings = 0;
 	TotalKills = 0;

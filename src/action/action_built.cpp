@@ -138,8 +138,11 @@ static void CancelBuilt(COrder_Built &order, CUnit *unit)
 	if (unit != nullptr) {
 		// Player gets back 75% of the original cost for a building.
 		unit->Player->AddCostsFactor(unit->Stats->Costs, CancelBuildingCostsFactor);
-		// Cancel building
-		LetUnitDie(*unit);
+		// A canceled foundation is removed, not destroyed in combat.
+		unit->Remove(nullptr);
+		UnitLost(*unit);
+		UnitClearOrders(*unit);
+		unit->Release();
 	}
 }
 
@@ -242,6 +245,9 @@ static void Finish(COrder_Built &order, CUnit &unit)
 	MapUnmarkUnitSight(unit);
 	unit.CurrentSightRange = unit.Stats->Variables[SIGHTRANGE_INDEX].Max;
 	MapMarkUnitSight(unit);
+	if (!type.BoolFlag[WALL_INDEX].value) {
+		player.CompletedBuildings++;
+	}
 	order.Finished = true;
 }
 

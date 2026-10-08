@@ -282,6 +282,9 @@ io.stdout:flush()
     assert len(terminals) == 1, logs
     assert terminals[0]["trainable_player"] == 1, logs
     assert terminals[0]["outcome"] == ("loss" if wall_only else "timeout"), logs
+    assert all(terminals[0][key] == 0 for key in (
+        "produced_units", "completed_buildings", "lost_units", "lost_buildings"
+    )), logs
     if wall_only:
         assert terminals[0]["cycles"] < 30, logs
     else:
@@ -557,3 +560,166 @@ end
     assert int(lethal[4]) == 1, logs
     assert float(baseline[5]) == float(third[5]) == 0, logs
     assert float(own[5]) > 0 and float(lethal[5]) > float(own[5]), logs
+
+
+@pytest.mark.gui
+@pytest.mark.slow
+def test_war1gus_production_and_casualties_count_actual_events(
+    stratagus_player: dict,
+    extracted_war1gus_data: Path,
+    gui_env,
+    tmp_path: Path,
+):
+    """Starting assets and captures are not production or combat casualties."""
+    write_war1gus_preferences(tmp_path)
+    map_path = tmp_path / "production-events.smp"
+    map_path.write_text(
+        'DefinePlayerTypes("computer", "person")\n'
+        'PresentMap("Production and loss events", 2, 32, 32, 1)\n'
+    )
+    (tmp_path / "production-events.sms").write_text("""
+local captive
+local function log(stage)
+  print("PRODUCTION_EVENTS " .. stage
+    .. " trained=" .. GetPlayerData(0, "TrainedUnits")
+    .. " completed=" .. GetPlayerData(0, "CompletedBuildings")
+    .. " lost_units=" .. GetPlayerData(0, "LostUnits")
+    .. " lost_buildings=" .. GetPlayerData(0, "LostBuildings")
+    .. " total_units=" .. GetPlayerData(0, "TotalUnits")
+    .. " total_buildings=" .. GetPlayerData(0, "TotalBuildings")
+    .. " captured_owner=" .. GetUnitVariable(captive, "Player"))
+  io.stdout:flush()
+end
+for i = 0, 1 do
+  SetStartView(i, 15, 15)
+  SetPlayerData(i, "Resources", "gold", 10000)
+  SetPlayerData(i, "Resources", "wood", 10000)
+  SetPlayerData(i, "RaceName", "human")
+end
+SetPlayerData(0, "SpeedTrain", 10000)
+SetPlayerData(0, "SpeedBuild", 10000)
+SetAiType(0, "production-metrics-ai")
+LoadTileModels("scripts/tilesets/forest.lua")
+for y = 0, 31 do
+  for x = 0, 31 do SetTile(80, x, y, 0) end
+end
+if MapUnitsInit ~= nil then MapUnitsInit() end
+local hall = CreateUnit("unit-human-town-hall", 0, {3, 3})
+local farm = CreateUnit("unit-human-farm", 0, {11, 5})
+-- Finished farms require adjacency to a neutral road during actual play.
+CreateUnit("unit-road", 15, {14, 8})
+local worker = CreateUnit("unit-peasant", 0, {17, 5})
+local footman = CreateUnit("unit-footman", 0, {18, 17})
+captive = CreateUnit("unit-peasant", 1, {26, 17})
+CreateUnit("unit-human-farm", 1, {24, 24})
+SetDiplomacy(0, "neutral", 1)
+SetDiplomacy(1, "neutral", 0)
+log("initial")
+local ordered = false
+AddTrigger(function() return GameCycle >= 2 end, function()
+  if ordered then return false end
+  ordered = true
+  -- Select a valid site under the engine's building and AI placement rules.
+  local site
+  for y = 2, 27 do
+    for x = 2, 27 do
+      if AiCanBuildAt(0, worker, "unit-human-farm", {x, y}) then
+        site = {x = x, y = y}
+        break
+      end
+    end
+    if site then break end
+  end
+  assert(site, "no valid farm site on the test map")
+  assert(AiPublishCommandBatch(0, 1, {
+    {actor = hall, verb = "train", argument = "unit-peasant"}
+  }))
+  assert(AiPublishCommandBatch(0, 2, {
+    {actor = worker, verb = "build-at",
+      argument = {type = "unit-human-farm", x = site.x, y = site.y}}
+  }))
+  log("ordered")
+  return false
+end)
+local started = false
+AddTrigger(function()
+  return ordered and not started
+    and GetPlayerData(0, "TotalBuildings") >= 3
+    and GetPlayerData(0, "CompletedBuildings") == 0
+end, function()
+  started = true
+  log("started")
+  return false
+end)
+local finished = false
+AddTrigger(function()
+  return ordered and not finished
+    and GetPlayerData(0, "TrainedUnits") >= 1
+    and GetPlayerData(0, "CompletedBuildings") >= 1
+end, function()
+  finished = true
+  log("finished")
+  ChangeUnitsOwner({26, 17}, {26, 17}, 1, 0, "unit-peasant")
+  log("captured")
+  ChangeUnitsOwner({26, 17}, {26, 17}, 0, 1, "unit-peasant")
+  log("returned")
+  DamageUnit(captive, footman, 10000)
+  DamageUnit(captive, farm, 10000)
+  log("killed")
+  Exit(0)
+  return false
+end)
+AddTrigger(function() return GameCycle >= 1200 end, function()
+  log("timed_out")
+  Exit(0)
+  return false
+end)
+""")
+    startup = tmp_path / "start.lua"
+    startup.write_text(f"""
+Load("scripts/stratagus.lua")
+SetTitleScreens({{}})
+DefineAi("production-metrics-ai", "*", "production-metrics-ai", function() end, 5)
+CustomStartup = function()
+  InitGameSettings()
+  GameSettings.GameType = -1
+  RunMap({json.dumps(str(map_path))}, false)
+  Exit(0)
+end
+""")
+    env = dict(gui_env)
+    env["STRATAGUS_UNBUFFERED_STDIO"] = "1"
+    stdout, stderr = tmp_path / "production.stdout", tmp_path / "production.stderr"
+    repo_root = Path(__file__).resolve().parents[2]
+    cmd = _participant_cmd(
+        stratagus_player,
+        ["-b", "-r", "-d", str(extracted_war1gus_data), "-u", str(tmp_path),
+         "-c", str(startup)],
+    )
+    process = _launch(cmd, cwd=repo_root, env=env, stdout=stdout, stderr=stderr)
+    try:
+        process.wait(timeout=60)
+    finally:
+        terminate_process(process)
+
+    logs = _combined_logs((stdout, stderr))
+    assert process.returncode == 0, logs
+    matches = re.findall(
+        r"PRODUCTION_EVENTS (initial|ordered|started|finished|captured|returned|killed|timed_out)"
+        r" trained=(\d+) completed=(\d+) lost_units=(\d+) lost_buildings=(\d+)"
+        r" total_units=(\d+) total_buildings=(\d+) captured_owner=(\d+)",
+        logs,
+    )
+    assert [row[0] for row in matches] == [
+        "initial", "ordered", "started", "finished", "captured", "returned", "killed"
+    ], logs
+    initial, ordered, started, finished, captured, returned, killed = (
+        tuple(map(int, row[1:])) for row in matches
+    )
+    assert initial[:4] == ordered[:4] == (0, 0, 0, 0), logs
+    assert initial[4] >= 2 and initial[5] >= 2, logs
+    assert started[1:4] == (0, 0, 0) and started[5] == initial[5] + 1, logs
+    assert finished[:4] == (1, 1, 0, 0), logs
+    assert captured[:4] == returned[:4] == finished[:4], logs
+    assert (finished[6], captured[6], returned[6]) == (1, 0, 1), logs
+    assert killed[:4] == (1, 1, 1, 1), logs

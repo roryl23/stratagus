@@ -281,6 +281,11 @@ public:
 	int Score = 0; /// Points for killing ...
 	int TotalUnits = 0;
 	int TotalBuildings = 0;
+	// Production and casualty events, not the historical ownership totals above.
+	int TrainedUnits = 0;
+	int CompletedBuildings = 0;
+	int LostUnits = 0;
+	int LostBuildings = 0;
 	int TotalResources[MaxCosts]{};
 	int TotalRazings = 0;
 	int TotalKills = 0; /// How many unit killed

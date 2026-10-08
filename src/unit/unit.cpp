@@ -2379,8 +2379,28 @@ PixelPos CUnit::GetMapPixelPosCenter() const
 **
 **  @param unit    Unit to be destroyed.
 */
+// Record actual destruction here, not in UnitLost: that also runs when a
+// living unit changes owners or a foundation is canceled.
+static void RecordUnitDeath(const CUnit &unit)
+{
+	if (!unit.IsAlive() || unit.Type->BoolFlag[VANISHES_INDEX].value
+	    || unit.Type->BoolFlag[WALL_INDEX].value || unit.Type == UnitTypeOrcWall
+	    || unit.Type == UnitTypeHumanWall) {
+		return;
+	}
+	if (unit.Type->Building) {
+		unit.Player->LostBuildings++;
+	} else {
+		unit.Player->LostUnits++;
+	}
+}
+
 void LetUnitDie(CUnit &unit, bool suicide)
 {
+	if (!unit.IsAlive()) {
+		return;
+	}
+	RecordUnitDeath(unit);
 	unit.Variable[HP_INDEX].Value = std::min<int>(0, unit.Variable[HP_INDEX].Value);
 	unit.Moving = 0;
 	unit.TTL = 0;
@@ -2424,6 +2444,7 @@ void LetUnitDie(CUnit &unit, bool suicide)
 	// Handle Teleporter Destination Removal
 	if (type->BoolFlag[TELEPORTER_INDEX].value && unit.Goal) {
 		unit.Goal->Remove(nullptr);
+		RecordUnitDeath(*unit.Goal);
 		UnitLost(*unit.Goal);
 		UnitClearOrders(*unit.Goal);
 		unit.Goal->Release();
@@ -2490,6 +2511,7 @@ void DestroyAllInside(CUnit &source)
 		// Transporter inside a transporter?
 		DestroyAllInside(*unit);
 
+		RecordUnitDeath(*unit);
 		UnitLost(*unit);
 		UnitClearOrders(*unit);
 		unit->Release();

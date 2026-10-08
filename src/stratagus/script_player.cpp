@@ -272,6 +272,14 @@ void CPlayer::Load(lua_State *l)
 			this->TotalUnits = LuaToNumber(l, j + 1);
 		} else if (value == "total-buildings") {
 			this->TotalBuildings = LuaToNumber(l, j + 1);
+		} else if (value == "trained-units") {
+			this->TrainedUnits = LuaToNumber(l, j + 1);
+		} else if (value == "completed-buildings") {
+			this->CompletedBuildings = LuaToNumber(l, j + 1);
+		} else if (value == "lost-units") {
+			this->LostUnits = LuaToNumber(l, j + 1);
+		} else if (value == "lost-buildings") {
+			this->LostBuildings = LuaToNumber(l, j + 1);
 		} else if (value == "total-razings") {
 			this->TotalRazings = LuaToNumber(l, j + 1);
 		} else if (value == "total-kills") {
@@ -1067,6 +1075,18 @@ static int CclGetPlayerData(lua_State *l)
 		return 1;
 	} else if (data == "TotalBuildings") {
 		lua_pushnumber(l, p->TotalBuildings);
+		return 1;
+	} else if (data == "TrainedUnits") {
+		lua_pushnumber(l, p->TrainedUnits);
+		return 1;
+	} else if (data == "CompletedBuildings") {
+		lua_pushnumber(l, p->CompletedBuildings);
+		return 1;
+	} else if (data == "LostUnits") {
+		lua_pushnumber(l, p->LostUnits);
+		return 1;
+	} else if (data == "LostBuildings") {
+		lua_pushnumber(l, p->LostBuildings);
 		return 1;
 	} else if (data == "TotalResources") {
 		LuaCheckArgs(l, 3);

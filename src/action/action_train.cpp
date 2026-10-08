@@ -33,8 +33,6 @@
 --  Includes
 ----------------------------------------------------------------------------*/
 
-#include "stratagus.h"
-
 #include "action/action_train.h"
 
 #include "ai.h"
@@ -43,6 +41,7 @@
 #include "luacallback.h"
 #include "player.h"
 #include "sound.h"
+#include "stratagus.h"
 #include "translate.h"
 #include "ui.h"
 #include "unit.h"
@@ -50,7 +49,7 @@
 #include "unittype.h"
 
 /// How many resources the player gets back if canceling training
-#define CancelTrainingCostsFactor  100
+#define CancelTrainingCostsFactor 100
 
 /*----------------------------------------------------------------------------
 --  Functions
@@ -105,7 +104,6 @@ PixelPos COrder_Train::Show(const CViewport &, const PixelPos &lastScreenPos) co
 	return lastScreenPos;
 }
 
-
 void COrder_Train::Cancel(CUnit &unit) /* override */
 {
 	DebugPrint("Cancel training\n");
@@ -132,7 +130,6 @@ void COrder_Train::ConvertUnitType(const CUnit &unit, CUnitType &newType)
 	this->Ticks = this->Ticks * newCost / oldCost;
 	this->Type = &newType;
 }
-
 
 /**
 **  Unit can handle order.
@@ -182,7 +179,7 @@ void COrder_Train::Execute(CUnit &unit) /* override */
 	AnimateActionTrain(unit);
 	if (unit.Wait) {
 		unit.Wait--;
-		return ;
+		return;
 	}
 	CPlayer &player = *unit.Player;
 	const CUnitType &nType = *this->Type;
@@ -191,7 +188,7 @@ void COrder_Train::Execute(CUnit &unit) /* override */
 
 	if (this->Ticks < cost) {
 		unit.Wait = CYCLES_PER_SECOND / 6;
-		return ;
+		return;
 	}
 	this->Ticks = std::min(this->Ticks, cost);
 
@@ -202,7 +199,7 @@ void COrder_Train::Execute(CUnit &unit) /* override */
 			AiNeedMoreSupply(*unit.Player);
 		}
 		unit.Wait = CYCLES_PER_SECOND / 6;
-		return ;
+		return;
 	}
 
 	CUnit *newUnit = MakeUnit(nType, &player);
@@ -210,8 +207,11 @@ void COrder_Train::Execute(CUnit &unit) /* override */
 	if (newUnit == nullptr) { // No more memory :/
 		player.Notify(ColorYellow, unit.tilePos, _("Unable to train %s"), nType.Name.c_str());
 		unit.Wait = CYCLES_PER_SECOND / 6;
-		return ;
+		return;
 	}
+	// Only a successfully created training result counts, never an order or
+	// a unit placed on the map by a script.
+	player.TrainedUnits++;
 
 	// New unit might supply food
 	UpdateForNewUnit(*newUnit, 0);
@@ -220,7 +220,6 @@ void COrder_Train::Execute(CUnit &unit) /* override */
 	if (unit.Type->DecayRate) {
 		newUnit->TTL = GameCycle + unit.Type->DecayRate * 6 * CYCLES_PER_SECOND;
 	}
-
 
 	/* Auto Group Add */
 	/* Remove this code from active status to allow buildings to be a group member
@@ -262,7 +261,6 @@ void COrder_Train::Execute(CUnit &unit) /* override */
 	if (IsOnlySelected(unit)) {
 		UI.ButtonPanel.Update();
 	}
-
 }
 
 //@}
