@@ -2331,6 +2331,41 @@ static bool AiBatchParsePrimitive(lua_State *l,
 	return valid;
 }
 
+static bool
+AiBatchParseCommands(lua_State *l, const int player, const int tableIndex, AiCommandBatch &batch)
+{
+	const size_t count = lua_rawlen(l, tableIndex);
+	if (player < 0 || player >= NumPlayers || Players[player].Type != PlayerTypes::PlayerComputer
+	    || count == 0 || count > AiCommandBatch::MaxCommands) {
+		return false;
+	}
+	batch.player = static_cast<uint8_t>(player);
+	batch.commands.reserve(count);
+	for (size_t i = 1; i <= count; ++i) {
+		lua_rawgeti(l, tableIndex, static_cast<int>(i));
+		AiCommandPrimitive command;
+		if (!AiBatchParsePrimitive(l, player, -1, command)) {
+			lua_pop(l, 1);
+			return false;
+		}
+		lua_pop(l, 1);
+		batch.commands.push_back(command);
+	}
+	return true;
+}
+
+// Preview current simulation legality only; publishing still checks again when queued.
+static int CclAiCanPublishCommandBatch(lua_State *l)
+{
+	if (lua_gettop(l) != 2 || !lua_istable(l, 2)) {
+		LuaError(l, "AiCanPublishCommandBatch expects player, commands table");
+	}
+	const int player = AiCommandInteger(l, 1, "AI batch player");
+	AiCommandBatch batch;
+	return AiCommandResult(
+		l, AiBatchParseCommands(l, player, 2, batch) && CanExecuteAiCommandBatch(batch));
+}
+
 static int CclAiPublishCommandBatch(lua_State *l)
 {
 	if (lua_gettop(l) != 3 || !lua_istable(l, 3)) {
@@ -2345,25 +2380,10 @@ static int CclAiPublishCommandBatch(lua_State *l)
 	    || sequence > std::numeric_limits<uint32_t>::max()) {
 		LuaError(l, "AI batch sequence must be an unsigned 32-bit integer");
 	}
-	const size_t count = lua_rawlen(l, 3);
-	if (!NetworkAiDecisionAuthority() || player < 0 || player >= NumPlayers
-	    || Players[player].Type != PlayerTypes::PlayerComputer || count == 0
-	    || count > AiCommandBatch::MaxCommands) {
-		return AiCommandResult(l, false);
-	}
 	AiCommandBatch batch;
-	batch.player = static_cast<uint8_t>(player);
 	batch.sequence = static_cast<uint32_t>(sequence);
-	batch.commands.reserve(count);
-	for (size_t i = 1; i <= count; ++i) {
-		lua_rawgeti(l, 3, static_cast<int>(i));
-		AiCommandPrimitive command;
-		if (!AiBatchParsePrimitive(l, player, -1, command)) {
-			lua_pop(l, 1);
-			return AiCommandResult(l, false);
-		}
-		lua_pop(l, 1);
-		batch.commands.push_back(command);
+	if (!NetworkAiDecisionAuthority() || !AiBatchParseCommands(l, player, 3, batch)) {
+		return AiCommandResult(l, false);
 	}
 	return AiCommandResult(l, NetworkPublishAiCommandBatch(batch));
 }
@@ -3082,6 +3102,7 @@ void AiCclRegister()
 	// for external AI processors
 	lua_register(Lua, "AiExternalDecisionAuthority", CclAiExternalDecisionAuthority);
 	lua_register(Lua, "AiPublishCommandBatch", CclAiPublishCommandBatch);
+	lua_register(Lua, "AiCanPublishCommandBatch", CclAiCanPublishCommandBatch);
 	lua_register(Lua, "AiCanBuildAt", CclAiCanBuildAt);
 	lua_register(Lua, "AiCanProduceType", CclAiCanProduceType);
 	lua_register(Lua, "AiActionCatalog", CclAiActionCatalog);
